@@ -1,0 +1,8 @@
+# clangd reads flags from the CMake-generated compilation database.
+CompileFlags:
+  CompilationDatabase: cmake-build-debug
+  Add:
+    # Headers are .h, and clangd's default for that extension is C -- which makes
+    # `enum class` and `using` look like syntax errors. Force C++ for every file.
+    - -xc++
+    - -std=c++20
