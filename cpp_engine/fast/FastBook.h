@@ -99,9 +99,21 @@ namespace fast {
             --live;
         }
 
+        // Adds slots [capacity(), newCapacity) to the free list. Existing slots keep their indices.
+        void grow(const std::size_t newCapacity) {
+            if (newCapacity >= NIL) throw std::length_error("order pool capacity too large");
+            const std::size_t old = nodes.size();
+            nodes.resize(newCapacity);
+            for (std::size_t i = old; i < newCapacity; ++i) {
+                nodes[i].next = i + 1 < newCapacity ? static_cast<Slot>(i + 1) : freeHead;
+            }
+            if (newCapacity > old) freeHead = static_cast<Slot>(old);
+        }
+
         Node &operator[](const Slot s) { return nodes[s]; }
         const Node &operator[](const Slot s) const { return nodes[s]; }
         [[nodiscard]] std::size_t size() const { return live; }
+        [[nodiscard]] std::size_t capacity() const { return nodes.size(); }
 
     private:
         std::vector<Node> nodes;
@@ -113,12 +125,16 @@ namespace fast {
 
     class IdIndex {
     public:
-        explicit IdIndex(const std::size_t maxEntries) {
-            std::size_t capacity = 16;
-            while (capacity < maxEntries * 2) capacity <<= 1; // load factor <= 0.5
-            keys.assign(capacity, 0);
-            slots.assign(capacity, NIL);
-            mask = capacity - 1;
+        explicit IdIndex(const std::size_t maxEntries) { allocate(maxEntries); }
+
+        // Re-sizes the table for `maxEntries`, keeping every entry.
+        void rehash(const std::size_t maxEntries) {
+            const std::vector<OrderId> oldKeys = std::move(keys);
+            const std::vector<Slot> oldSlots = std::move(slots);
+            allocate(maxEntries);
+            for (std::size_t i = 0; i < oldSlots.size(); ++i) {
+                if (oldSlots[i] != NIL) insert(oldKeys[i], oldSlots[i]);
+            }
         }
 
         [[nodiscard]] Slot find(const OrderId id) const {
@@ -159,6 +175,14 @@ namespace fast {
         }
 
     private:
+        void allocate(const std::size_t maxEntries) {
+            std::size_t capacity = 16;
+            while (capacity < maxEntries * 2) capacity <<= 1; // load factor <= 0.5
+            keys.assign(capacity, 0);
+            slots.assign(capacity, NIL);
+            mask = capacity - 1;
+        }
+
         [[nodiscard]] std::size_t home(OrderId x) const {
             // splitmix64 finaliser: sequential ids spread over the table
             x ^= x >> 33;
@@ -312,6 +336,12 @@ namespace fast {
               pool(maxOrders), index(maxOrders) {
             fills.reserve(fillCapacity);
         }
+
+        // By default a full book throws std::length_error. With growth on,
+        // the pool and id table double instead, so `maxOrders` is only a
+        // starting size: small enough to stay in cache when the live book
+        // is small. Allocates only while growing.
+        void growWhenFull(const bool on = true) { growable = on; }
 
         // Matches `quantity` against the other side; a GTC limit remainder
         // rests. Returns the fills, valid until the next call. Throws
@@ -526,6 +556,11 @@ namespace fast {
 
         template<class Own>
         void rest(const OrderId id, const Side side, const Price price, const Quantity quantity, Own &own) {
+            if (growable && pool.size() == pool.capacity()) {
+                const std::size_t capacity = std::max<std::size_t>(16, pool.capacity() * 2);
+                pool.grow(capacity);
+                index.rehash(capacity);
+            }
             const Slot s = pool.acquire();
             Level &level = own.getOrCreate(price);
             pool[s] = Node{id, price, quantity, level.tail, NIL, side};
@@ -557,6 +592,7 @@ namespace fast {
         OrderPool pool;
         IdIndex index;
         std::vector<Fill> fills;
+        bool growable = false;
     };
 
     // Flat array + bitmap ladder: the zero-allocation book.

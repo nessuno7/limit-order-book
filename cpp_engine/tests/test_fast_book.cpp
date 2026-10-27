@@ -82,6 +82,24 @@ TEST(fast_pool_exhaustion_throws) {
     CHECK_EQ(book.restingOrders(), 2u);
 }
 
+TEST(fast_book_grows_when_allowed) {
+    FastBook book(1, 100, 2);
+    book.growWhenFull();
+    for (OrderId id = 1; id <= 1'000; ++id) book.restPassive(id, id % 2 ? Side::BUY : Side::SELL, id % 2 ? 40 : 60, 1);
+    CHECK_EQ(book.restingOrders(), 1'000u);
+    for (OrderId id = 1; id <= 1'000; ++id) CHECK(book.contains(id)); // every id survived the rehashes
+    CHECK_EQ(book.levelQuantity(Side::BUY, 40), 500);
+    std::vector<OrderId> fifo;
+    book.forEachOrderAt(Side::SELL, 60, [&](const OrderId id, Quantity) { fifo.push_back(id); });
+    CHECK_EQ(fifo.size(), 500u);
+    CHECK_EQ(fifo.front(), 2u); // queue order is untouched by growth
+    CHECK_EQ(fifo.back(), 1'000u);
+    for (OrderId id = 1; id <= 1'000; id += 2) CHECK(book.cancel(id));
+    const auto fills = book.submit(5'000, Side::BUY, 60, 3, TimeInForce::GTC);
+    CHECK_EQ(fills.size(), 3u);
+    CHECK_EQ(fills.front().sellOrderId, 2u);
+}
+
 // ---- ladder ------------------------------------------------------------------
 
 TEST(fast_best_bid_falls_back_across_bitmap_words) {

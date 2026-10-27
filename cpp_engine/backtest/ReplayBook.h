@@ -57,12 +57,15 @@ namespace bt {
         // Placeholder ids live at the top of the id space, away from any feed's.
         static constexpr OrderId PLACEHOLDER_BASE = OrderId{1} << 62;
 
+        // `maxOrders` is a starting capacity: the book grows as needed.
         // `snapshotDepth` is the number of levels per side the feed's
         // snapshots show (LOBSTER's N); 0 if unknown, in which case a level
         // is never known to be out of view.
         ReplayBook(const Price minPrice, const Price maxPrice, const std::size_t maxOrders,
                    const std::size_t snapshotDepth = 0)
-            : lo(minPrice), hi(maxPrice), depth(snapshotDepth), book(minPrice, maxPrice, maxOrders) {}
+            : lo(minPrice), hi(maxPrice), depth(snapshotDepth), book(minPrice, maxPrice, maxOrders) {
+            book.growWhenFull(); // feeds give no bound on resting orders; start small to stay in cache
+        }
 
         enum class Applied : std::uint8_t { Known, Placeholder, Unexplained };
 

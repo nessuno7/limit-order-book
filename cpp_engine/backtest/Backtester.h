@@ -55,7 +55,7 @@ namespace bt {
     struct Config {
         Price minPrice = 1;
         Price maxPrice = 20'000;
-        std::size_t maxOrders = 1 << 20; // historical orders resting at once
+        std::size_t maxOrders = 4'096;  // starting capacity for historical orders; the book grows past it
         std::size_t snapshotDepth = 0;   // levels per side in the feed's snapshots, if it has them (LOBSTER's N)
         Nanos orderLatency = 0;          // strategy -> exchange, for placements and cancels
         Nanos markoutHorizon = 1'000'000'000; // adverse selection is measured this long after each fill

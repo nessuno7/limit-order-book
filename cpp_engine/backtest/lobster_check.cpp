@@ -62,8 +62,7 @@ int main(const int argc, char **argv) {
     }
     const std::size_t depth = day.depth;
 
-    std::size_t maxOrders = 1'024;
-    for (const auto &m: day.messages) if (m && m->type == bt::EventType::Add) ++maxOrders;
+    const std::size_t maxOrders = 4'096; // a starting size: ReplayBook grows
     bt::ReplayBook book(day.minPrice - 1, day.maxPrice + 1, maxOrders, depth);
     book.resyncTo(day.initial);
     const bt::ReplayStats seeded = book.stats();
