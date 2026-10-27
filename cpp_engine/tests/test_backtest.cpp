@@ -6,10 +6,13 @@
 #include "test_framework.h"
 
 #include "backtest/Backtester.h"
+#include "backtest/DayCache.h"
 #include "backtest/Feeds.h"
 #include "backtest/Strategies.h"
 #include "harness/op.h"
 
+#include <filesystem>
+#include <optional>
 #include <sstream>
 #include <vector>
 
@@ -388,4 +391,107 @@ TEST(replay_book_folds_levels_that_leave_view) {
     CHECK((b.top(5).asks == std::vector<std::pair<Price, Quantity>>{{101, 10}, {102, 8}}));
     CHECK_EQ(b.stats().droppedKnown, 0);
     CHECK(b.fastBook().contains(1));
+}
+
+// ---- compiled days (backtest/DayCache.h) ------------------------------------------
+
+namespace {
+    // A LOBSTER-like day from the synthetic feed: snapshots show the top
+    // `depth` levels of the true book, and every 7th add is withheld (its
+    // later cancels and executions are not), so re-syncs have placeholder
+    // volume to create, shrink and fold.
+    bt::LobsterDay hiddenAddDay(const std::uint64_t seed, const std::size_t depth) {
+        const FlowParams params = flowProfile(0);
+        const std::vector<MarketEvent> feed = bt::syntheticFeed(seed, 20'000, params);
+        bt::ReplayBook truth(params.minPrice, params.maxPrice, 1'024);
+        bt::LobsterDay day;
+        day.depth = depth;
+        day.minPrice = params.minPrice + 1; // Backtester's book spans minPrice - 1 .. maxPrice + 1
+        day.maxPrice = params.maxPrice - 1;
+        std::size_t adds = 0;
+        for (const MarketEvent &e: feed) {
+            truth.apply(e);
+            const bool hidden = e.type == EventType::Add && ++adds % 7 == 0;
+            day.messages.push_back(hidden ? std::nullopt : std::optional<MarketEvent>(e));
+            day.books.push_back(truth.top(depth));
+        }
+        return day;
+    }
+}
+
+TEST(compiled_day_replays_exactly_like_online_resync) {
+    for (const std::uint64_t seed: {1u, 2u, 3u}) {
+        const bt::LobsterDay day = hiddenAddDay(seed, 3);
+        const bt::CompiledDay compiled = bt::compileDay(day);
+        CHECK(!compiled.fixes.empty());
+
+        bt::ReplayBook online(day.minPrice - 1, day.maxPrice + 1, 64, day.depth);
+        bt::ReplayBook replayed(day.minPrice - 1, day.maxPrice + 1, 64, day.depth);
+        online.resyncTo(day.initial);
+        replayed.replay(compiled.seedFixes());
+        std::size_t k = 0;
+        for (std::size_t i = 0; i < day.messages.size(); ++i) {
+            if (!day.messages[i]) continue;
+            CHECK(compiled.events[k] == *day.messages[i]);
+            online.apply(*day.messages[i]);
+            replayed.apply(compiled.events[k]);
+            CHECK_EQ(online.resyncTo(day.books[i]), replayed.replay(compiled.fixesAfter(k)));
+            ++k;
+            if (k % 500 == 0) CHECK(snapshot(online.fastBook()) == snapshot(replayed.fastBook()));
+        }
+        CHECK_EQ(k, compiled.events.size());
+        CHECK(snapshot(online.fastBook()) == snapshot(replayed.fastBook()));
+        CHECK_EQ(online.stats().resyncedVolume, replayed.stats().resyncedVolume);
+        CHECK_EQ(online.stats().foldedOrders, replayed.stats().foldedOrders);
+        CHECK(online.stats().foldedOrders > 0);
+
+        // And through the backtester, with a strategy that trades.
+        bt::Config c = config(50'000);
+        c.minPrice = day.minPrice - 1;
+        c.maxPrice = day.maxPrice + 1;
+        c.snapshotDepth = day.depth;
+        bt::QuoteAtTouch s1(10, 100), s2(10, 100);
+        bt::Backtester a(c, s1), b(c, s2);
+        a.seed(day.initial);
+        b.seed(compiled.seedFixes());
+        for (std::size_t i = 0; i < day.messages.size(); ++i) {
+            if (day.messages[i]) a.step(*day.messages[i], &day.books[i]);
+        }
+        for (std::size_t i = 0; i < compiled.events.size(); ++i) b.step(compiled.events[i], compiled.fixesAfter(i));
+        a.finish();
+        b.finish();
+        CHECK(a.stats().fills > 0);
+        CHECK_EQ(a.stats().fills, b.stats().fills);
+        CHECK_EQ(a.stats().cash, b.stats().cash);
+        CHECK_EQ(a.stats().position, b.stats().position);
+        CHECK_EQ(a.stats().markout, b.stats().markout);
+    }
+}
+
+TEST(day_cache_round_trips_and_rejects_stale_or_damaged_files) {
+    const bt::CompiledDay day = bt::compileDay(hiddenAddDay(4, 2));
+    const std::string path = (std::filesystem::temp_directory_path() / "lob_test_day.lobday").string();
+    const bt::DaySource source{100, 1, 200, 2, 100};
+    bt::saveDay(day, source, path);
+
+    const auto back = bt::loadDay(path, source);
+    CHECK(back.has_value());
+    CHECK(back->events == day.events);
+    CHECK(back->fixes == day.fixes);
+    CHECK(back->fixEnd == day.fixEnd);
+    CHECK_EQ(back->rows, day.rows);
+    CHECK_EQ(back->depth, day.depth);
+    CHECK_EQ(back->minPrice, day.minPrice);
+
+    bt::DaySource touched = source;
+    touched.bookTime = 3; // the orderbook file changed since
+    CHECK(!bt::loadDay(path, touched).has_value());
+    bt::DaySource otherDivisor = source;
+    otherDivisor.priceDivisor = 1;
+    CHECK(!bt::loadDay(path, otherDivisor).has_value());
+
+    std::filesystem::resize_file(path, std::filesystem::file_size(path) - 5);
+    CHECK(!bt::loadDay(path, source).has_value());
+    std::filesystem::remove(path);
+    CHECK(!bt::loadDay(path, source).has_value());
 }

@@ -46,6 +46,7 @@
 #include <deque>
 #include <map>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -132,19 +133,13 @@ namespace bt {
         // given, is the feed's own snapshot after this message: the book is
         // re-synced to it before the strategy looks.
         void step(const MarketEvent &e, const TopOfBook *truth = nullptr) {
-            if (e.time < clock) throw std::invalid_argument("feed went back in time at " + std::to_string(e.time));
-            clock = e.time;
-            ++stats_.events;
+            stepWith(e, [&] { if (truth != nullptr) book.resyncTo(*truth); });
+        }
 
-            releaseActions(clock);
-            fillAgainst(e);
-            applyToBook(e);
-            if (truth != nullptr) book.resyncTo(*truth);
-            updateMid();
-            settleMarkouts(false);
-            dispatchFills();
-            strat.onEvent(*this, e);
-            dispatchFills(); // actions never fill synchronously, but keep the invariant cheap to see
+        // The same, with the re-sync precomputed: `fixes` are the corrections
+        // ReplayBook::resyncTo recorded for this message (see DayCache.h).
+        void step(const MarketEvent &e, const std::span<const Correction> fixes) {
+            stepWith(e, [&] { book.replay(fixes); });
         }
 
         template<class Events>
@@ -157,6 +152,12 @@ namespace bt {
         // first snapshot, with that message undone).
         void seed(const TopOfBook &levels) {
             book.resyncTo(levels);
+            updateMid();
+        }
+
+        // The same, from the corrections recorded when seeding.
+        void seed(const std::span<const Correction> fixes) {
+            book.replay(fixes);
             updateMid();
         }
 
@@ -224,6 +225,23 @@ namespace bt {
             Price price;
             Quantity quantity;
         };
+
+        template<class Resync>
+        void stepWith(const MarketEvent &e, Resync &&resync) {
+            if (e.time < clock) throw std::invalid_argument("feed went back in time at " + std::to_string(e.time));
+            clock = e.time;
+            ++stats_.events;
+
+            releaseActions(clock);
+            fillAgainst(e);
+            applyToBook(e);
+            resync();
+            updateMid();
+            settleMarkouts(false);
+            dispatchFills();
+            strat.onEvent(*this, e);
+            dispatchFills(); // actions never fill synchronously, but keep the invariant cheap to see
+        }
 
         // Constant latency keeps `actions` in due order, so it is a FIFO.
         void releaseActions(const Nanos t) {

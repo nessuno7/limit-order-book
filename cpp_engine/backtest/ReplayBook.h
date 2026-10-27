@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -50,6 +51,20 @@ namespace bt {
         Quantity resyncedVolume = 0;       // absolute volume those corrections moved
         Quantity droppedKnown = 0;         // tracked volume a correction had to remove (should stay 0)
         std::uint64_t foldedOrders = 0;    // tracked orders folded into placeholders as their level left view
+    };
+
+    // One change a re-sync made: fold a level that left view into its
+    // placeholder, or bring a level to `want` shares. The book's state depends
+    // only on the feed, so a day's corrections can be computed once and
+    // replayed by every backtest of it.
+    struct Correction {
+        enum class Kind : std::uint8_t { Fold, Adjust };
+        Kind kind = Kind::Adjust;
+        Side side = Side::BUY;
+        Price price = 0;
+        Quantity want = 0; // Adjust only
+
+        bool operator==(const Correction &) const = default;
     };
 
     class ReplayBook {
@@ -93,8 +108,28 @@ namespace bt {
         // from the oldest tracked orders). Levels below a full snapshot's
         // depth are out of view: their tracked orders are folded into
         // placeholders. Returns the number of levels changed.
-        std::size_t resyncTo(const TopOfBook &truth) {
-            return resyncSide(Side::BUY, truth.bids) + resyncSide(Side::SELL, truth.asks);
+        //
+        // With `record`, every change made is also appended to it as a
+        // Correction, so a later replay() can repeat the re-sync without the
+        // snapshot (see DayCache.h).
+        std::size_t resyncTo(const TopOfBook &truth, std::vector<Correction> *record = nullptr) {
+            recording = record;
+            const std::size_t changed = resyncSide(Side::BUY, truth.bids) + resyncSide(Side::SELL, truth.asks);
+            recording = nullptr;
+            return changed;
+        }
+
+        // Repeats corrections recorded by resyncTo() on a book in the same
+        // state; returns the number of levels changed, as resyncTo() would.
+        // A book replayed this way does not track the last snapshot, so do not
+        // mix replay() and resyncTo() on one book.
+        std::size_t replay(const std::span<const Correction> fixes) {
+            std::size_t changed = 0;
+            for (const Correction &c: fixes) {
+                if (c.kind == Correction::Kind::Fold) fold(c.side, c.price);
+                else changed += adjust(c.side, c.price, book.levelQuantity(c.side, c.price), c.want);
+            }
+            return changed;
         }
 
         [[nodiscard]] TopOfBook top(const std::size_t levels) const {
@@ -161,6 +196,7 @@ namespace bt {
         }
 
         void fold(const Side side, const Price p) {
+            if (recording != nullptr) recording->push_back({Correction::Kind::Fold, side, p, 0});
             Quantity total = 0;
             for (const auto &[id, q]: trackedAt(side, p)) {
                 book.cancel(id);
@@ -206,6 +242,7 @@ namespace bt {
 
         std::size_t adjust(const Side side, const Price p, const Quantity have, const Quantity want) {
             if (have == want) return 0;
+            if (recording != nullptr) recording->push_back({Correction::Kind::Adjust, side, p, want});
             if (want > have) {
                 addToPlaceholder(side, p, want - have);
             } else {
@@ -234,6 +271,7 @@ namespace bt {
         Levels lastBids, lastAsks; // the previous snapshot, to see levels leave view
         Levels ours;               // scratch for resyncSide, kept to avoid allocating per snapshot
         std::vector<std::pair<OrderId, Quantity>> tracked; // scratch for trackedAt
+        std::vector<Correction> *recording = nullptr;       // set during a recorded resyncTo()
         ReplayStats stats_;
     };
 }

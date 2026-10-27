@@ -3,12 +3,21 @@
 // prints the result.
 //
 //   lob_backtest [--seed N] [--ops N] [--profile tight|deep|volatile]
-//                [--lobster MESSAGE_FILE --lobster-book ORDERBOOK_FILE [--price-divisor D]]
+//                [--lobster MESSAGE_FILE --lobster-book ORDERBOOK_FILE [--price-divisor D]
+//                 [--resync cache|memory|online]]
 //                [--latency-us N] [--size N] [--max-position N] [--horizon-ms N]
 //                [--maker-fee F] [--taker-fee F]
 //
+// --resync picks how the LOBSTER book is kept in line with the orderbook
+// file (all three give the same result):
+//   cache   corrections precomputed once and cached next to the message file
+//           (backtest/DayCache.h); the default
+//   memory  precomputed in memory from the CSVs, nothing written
+//   online  re-synced to the orderbook file after every message
+//
 
 #include "backtest/Backtester.h"
+#include "backtest/DayCache.h"
 #include "backtest/Feeds.h"
 #include "backtest/Strategies.h"
 
@@ -25,13 +34,17 @@ namespace {
         std::cerr << why << "\nsee the header of backtest/run_backtest.cpp for the options\n";
         std::exit(2);
     }
+
+    double since(const std::chrono::steady_clock::time_point t0) {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    }
 }
 
 int main(const int argc, char **argv) {
     std::uint64_t seed = 1;
     std::size_t ops = 1'000'000;
     int profile = 0;
-    std::string lobster, lobsterBook;
+    std::string lobster, lobsterBook, resync = "cache";
     Price priceDivisor = 1;
     bt::Config cfg;
     cfg.minPrice = 0;
@@ -49,6 +62,7 @@ int main(const int argc, char **argv) {
         else if (a == "--lobster") lobster = v;
         else if (a == "--lobster-book") lobsterBook = v;
         else if (a == "--price-divisor") priceDivisor = std::stoll(v);
+        else if (a == "--resync") resync = v;
         else if (a == "--latency-us") cfg.orderLatency = std::stoll(v) * 1'000;
         else if (a == "--horizon-ms") cfg.markoutHorizon = std::stoll(v) * 1'000'000;
         else if (a == "--size") size = std::stoll(v);
@@ -57,19 +71,38 @@ int main(const int argc, char **argv) {
         else if (a == "--taker-fee") cfg.takerFee = std::stod(v);
         else usage(("unknown option " + a).c_str());
     }
+    if (resync != "cache" && resync != "memory" && resync != "online") usage("--resync takes cache, memory or online");
 
     std::vector<bt::MarketEvent> events;
-    bt::LobsterDay day;
+    bt::LobsterDay day;          // --resync online
+    bt::CompiledDay compiled;    // --resync cache / memory
+    const auto tLoad = std::chrono::steady_clock::now();
     if (!lobster.empty()) {
         // The orderbook file seeds the book and re-syncs it after every
         // message: LOBSTER only reports the top N levels.
-        std::ifstream in(lobster), books(lobsterBook);
-        if (!in || !books) usage("--lobster needs a readable message file and --lobster-book its orderbook file");
-        day = bt::loadLobster(in, books, priceDivisor);
-        cfg.minPrice = day.minPrice - 1;
-        cfg.maxPrice = day.maxPrice + 1;
-        cfg.snapshotDepth = day.depth;
-        std::cout << "feed: " << lobster << ", " << day.messages.size() << " messages\n";
+        if (lobsterBook.empty()) usage("--lobster needs --lobster-book, its orderbook file");
+        std::size_t rows = 0, depth = 0;
+        Price lo = 0, hi = 0;
+        std::string how;
+        if (resync == "online") {
+            std::ifstream in(lobster), books(lobsterBook);
+            if (!in || !books) usage("--lobster needs a readable message file and --lobster-book its orderbook file");
+            day = bt::loadLobster(in, books, priceDivisor);
+            rows = day.messages.size(), depth = day.depth, lo = day.minPrice, hi = day.maxPrice;
+            how = "parsed both CSVs";
+        } else {
+            bool fromCache = false;
+            compiled = bt::loadLobsterCompiled(lobster, lobsterBook, priceDivisor, fromCache, resync == "cache");
+            rows = compiled.rows, depth = compiled.depth, lo = compiled.minPrice, hi = compiled.maxPrice;
+            how = fromCache ? "from cache " + bt::dayCachePath(lobster, priceDivisor)
+                  : resync == "cache" ? "compiled from the CSVs, cached to " + bt::dayCachePath(lobster, priceDivisor)
+                                      : "compiled from the CSVs";
+        }
+        cfg.minPrice = lo - 1;
+        cfg.maxPrice = hi + 1;
+        cfg.snapshotDepth = depth;
+        std::cout << "feed: " << lobster << ", " << rows << " messages\n";
+        std::printf("load:     %.3f s, %s\n", since(tLoad), how.c_str());
     } else {
         const FlowParams params = flowProfile(profile);
         cfg.minPrice = params.minPrice;
@@ -82,16 +115,20 @@ int main(const int argc, char **argv) {
     bt::QuoteAtTouch strategy(size, maxPosition);
     bt::Backtester backtest(cfg, strategy);
     const auto t0 = std::chrono::steady_clock::now();
-    if (!lobster.empty()) {
+    if (!lobster.empty() && resync == "online") {
         backtest.seed(day.initial);
         for (std::size_t i = 0; i < day.messages.size(); ++i) {
             if (day.messages[i]) backtest.step(*day.messages[i], &day.books[i]);
         }
         backtest.finish();
+    } else if (!lobster.empty()) {
+        backtest.seed(compiled.seedFixes());
+        for (std::size_t i = 0; i < compiled.events.size(); ++i) backtest.step(compiled.events[i], compiled.fixesAfter(i));
+        backtest.finish();
     } else {
         backtest.run(events);
     }
-    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    const double secs = since(t0);
 
     const bt::Stats &s = backtest.stats();
     std::printf("strategy: QuoteAtTouch size %lld, max position %lld, latency %lld us\n",
