@@ -13,7 +13,9 @@
 
 #include <filesystem>
 #include <optional>
+#include <random>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 using bt::EventType;
@@ -494,4 +496,42 @@ TEST(day_cache_round_trips_and_rejects_stale_or_damaged_files) {
     CHECK(!bt::loadDay(path, source).has_value());
     std::filesystem::remove(path);
     CHECK(!bt::loadDay(path, source).has_value());
+}
+
+// ---- flat containers (backtest/FlatContainers.h) ----------------------------------
+
+TEST(id_map_matches_unordered_map_under_random_ops) {
+    bt::IdMap<std::uint64_t> m(4); // tiny, so it grows many times
+    std::unordered_map<OrderId, std::uint64_t> ref;
+    std::mt19937_64 rng(7);
+    for (int i = 0; i < 200'000; ++i) {
+        const OrderId id = rng() % 3'000; // dense ids: long probe runs and many shifts on erase
+        switch (rng() % 3) {
+            case 0: m.set(id, i + 1); ref[id] = static_cast<std::uint64_t>(i + 1); break;
+            case 1: m.erase(id); ref.erase(id); break;
+            default: {
+                const auto it = ref.find(id);
+                CHECK_EQ(m.get(id, 0), it == ref.end() ? 0u : it->second);
+            }
+        }
+    }
+    CHECK_EQ(m.size(), ref.size());
+    for (const auto &[id, v]: ref) CHECK_EQ(m.get(id, 0), v);
+}
+
+TEST(fifo_keeps_order_across_compaction) {
+    bt::Fifo<int> q;
+    int next = 0, expect = 0;
+    for (int round = 0; round < 50; ++round) {
+        for (int i = 0; i < 3'000; ++i) q.push_back(next++);
+        for (int i = 0; i < 2'000; ++i) {
+            CHECK_EQ(q.front(), expect++);
+            q.pop_front();
+        }
+    }
+    while (!q.empty()) {
+        CHECK_EQ(q.front(), expect++);
+        q.pop_front();
+    }
+    CHECK_EQ(expect, next);
 }

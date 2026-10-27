@@ -38,18 +38,16 @@
 #ifndef LIMIT_ORDER_BOOK_BACKTEST_BACKTESTER_H
 #define LIMIT_ORDER_BOOK_BACKTEST_BACKTESTER_H
 
+#include "backtest/FlatContainers.h"
 #include "backtest/MarketEvent.h"
 #include "backtest/ReplayBook.h"
 
 #include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace bt {
@@ -177,13 +175,15 @@ namespace bt {
         [[nodiscard]] const Stats &stats() const { return stats_; }
         [[nodiscard]] const ReplayBook &marketBook() const { return book; }
 
-        // Our order, or nullptr once it is filled or cancelled.
+        // Our order, or nullptr once it is filled or cancelled. The pointer
+        // is valid until the next place(), step() or seed().
         [[nodiscard]] const SimOrder *order(const OrderId id) const {
-            const auto it = orders.find(id);
-            return it == orders.end() ? nullptr : &it->second;
+            const auto it = findOrder(id);
+            return it == orders.end() ? nullptr : &*it;
         }
 
-        [[nodiscard]] const std::map<OrderId, SimOrder> &openOrders() const { return orders; }
+        // Our open orders, by id.
+        [[nodiscard]] std::span<const SimOrder> openOrders() const { return orders; }
 
         // Send a GTC limit order; it reaches the exchange after the latency.
         // Any part that crosses the book then trades, the rest queues.
@@ -196,21 +196,31 @@ namespace bt {
             o.side = side;
             o.price = price;
             o.remaining = quantity;
-            orders.emplace(id, o);
+            orders.push_back(o); // ids only grow, so `orders` stays sorted
             actions.push_back({clock + cfg.orderLatency, ActionKind::Place, id});
             return id;
         }
 
         // False if the order is already gone or a cancel is already in flight.
         bool cancel(const OrderId id) {
-            const auto it = orders.find(id);
-            if (it == orders.end() || it->second.cancelSent) return false;
-            it->second.cancelSent = true;
+            const auto it = findOrder(id);
+            if (it == orders.end() || it->cancelSent) return false;
+            it->cancelSent = true;
             actions.push_back({clock + cfg.orderLatency, ActionKind::Cancel, id});
             return true;
         }
 
     private:
+        std::vector<SimOrder>::iterator findOrder(const OrderId id) {
+            const auto it = std::lower_bound(orders.begin(), orders.end(), id,
+                                             [](const SimOrder &o, const OrderId x) { return o.id < x; });
+            return it != orders.end() && it->id == id ? it : orders.end();
+        }
+
+        [[nodiscard]] std::vector<SimOrder>::const_iterator findOrder(const OrderId id) const {
+            return const_cast<Backtester *>(this)->findOrder(id);
+        }
+
         enum class ActionKind : std::uint8_t { Place, Cancel };
 
         struct Action {
@@ -248,10 +258,10 @@ namespace bt {
             while (!actions.empty() && actions.front().due <= t) {
                 const Action a = actions.front();
                 actions.pop_front();
-                const auto it = orders.find(a.id);
+                const auto it = findOrder(a.id);
                 if (it == orders.end()) continue; // filled before the action landed
                 if (a.kind == ActionKind::Cancel) orders.erase(it);
-                else arrive(it->second, a.due);
+                else arrive(*it, a.due);
             }
             eraseFilled();
         }
@@ -272,10 +282,11 @@ namespace bt {
         }
 
         // Live orders on one side, in exchange priority: best price, then
-        // earliest arrival.
-        std::vector<SimOrder *> liveOrders(const Side side) {
-            std::vector<SimOrder *> r;
-            for (auto &[id, o]: orders) {
+        // earliest arrival. The result lives in a reused buffer.
+        const std::vector<SimOrder *> &liveOrders(const Side side) {
+            std::vector<SimOrder *> &r = liveScratch;
+            r.clear();
+            for (SimOrder &o: orders) {
                 if (o.live && o.remaining > 0 && o.side == side) r.push_back(&o);
             }
             std::sort(r.begin(), r.end(), [](const SimOrder *a, const SimOrder *b) {
@@ -286,8 +297,7 @@ namespace bt {
         }
 
         [[nodiscard]] std::uint64_t seqOf(const OrderId id) const {
-            const auto it = arrival.find(id);
-            return it == arrival.end() ? 0 : it->second; // resting before the feed began: ahead of everyone
+            return arrival.get(id, 0); // 0: resting before the feed began, ahead of everyone
         }
 
         void fillAgainst(const MarketEvent &e) {
@@ -343,7 +353,7 @@ namespace bt {
                 ++stats_.unknownOrders;
                 return;
             }
-            if (e.type == EventType::Add) arrival[e.id] = ++seqCounter;
+            if (e.type == EventType::Add) arrival.set(e.id, ++seqCounter);
             else if (!book.fastBook().contains(e.id)) arrival.erase(e.id);
         }
 
@@ -363,7 +373,7 @@ namespace bt {
         }
 
         void eraseFilled() {
-            std::erase_if(orders, [](const auto &kv) { return kv.second.remaining == 0; });
+            std::erase_if(orders, [](const SimOrder &o) { return o.remaining == 0; });
         }
 
         void updateMid() {
@@ -388,21 +398,22 @@ namespace bt {
             // A callback may place or cancel, but never fills synchronously,
             // so swapping out the buffer is enough.
             while (!newFills.empty()) {
-                std::vector<SimFill> batch;
-                batch.swap(newFills);
-                for (const SimFill &f: batch) strat.onFill(*this, f);
+                fillBatch.clear();
+                fillBatch.swap(newFills); // the two buffers trade places, keeping their capacity
+                for (const SimFill &f: fillBatch) strat.onFill(*this, f);
             }
         }
 
         Config cfg;
         Strategy &strat;
         ReplayBook book;
-        std::unordered_map<OrderId, std::uint64_t> arrival; // historical order -> arrival number
+        IdMap<std::uint64_t> arrival; // historical order -> arrival number
         std::uint64_t seqCounter = 0;
-        std::map<OrderId, SimOrder> orders;
-        std::deque<Action> actions;
-        std::deque<PendingMarkout> markouts;
-        std::vector<SimFill> newFills;
+        std::vector<SimOrder> orders; // open orders, sorted by id
+        std::vector<SimOrder *> liveScratch;
+        Fifo<Action> actions;
+        Fifo<PendingMarkout> markouts;
+        std::vector<SimFill> newFills, fillBatch;
         OrderId nextId = 1;
         Nanos clock = 0;
         double lastMid = 0.0;
