@@ -300,11 +300,26 @@ namespace bt {
             return arrival.get(id, 0); // 0: resting before the feed began, ahead of everyone
         }
 
+        // Whether any live order on `side` satisfies `p`. Most messages are
+        // nowhere near our orders; this lets them skip building and sorting
+        // the priority list.
+        template<class P>
+        [[nodiscard]] bool anyLive(const Side side, P &&p) const {
+            for (const SimOrder &o: orders) {
+                if (o.live && o.remaining > 0 && o.side == side && p(o)) return true;
+            }
+            return false;
+        }
+
         void fillAgainst(const MarketEvent &e) {
             switch (e.type) {
                 case EventType::Add: {
                     // An incoming order that crosses our resting price would have traded with us.
                     const Side ours = e.side == Side::BUY ? Side::SELL : Side::BUY;
+                    const auto crossesUs = [&](const SimOrder &o) {
+                        return ours == Side::BUY ? e.price <= o.price : e.price >= o.price;
+                    };
+                    if (!anyLive(ours, crossesUs)) return;
                     Quantity budget = e.quantity;
                     for (SimOrder *o: liveOrders(ours)) {
                         if (budget == 0) break;
@@ -322,6 +337,7 @@ namespace bt {
                 }
                 case EventType::Cancel:
                 case EventType::Delete: {
+                    if (!anyLive(e.side, [&](const SimOrder &o) { return o.price == e.price; })) return;
                     const std::uint64_t s = seqOf(e.id);
                     for (SimOrder *o: liveOrders(e.side)) {
                         if (o->price == e.price && s <= o->joinSeq) o->ahead -= std::min(o->ahead, e.quantity);
@@ -329,6 +345,10 @@ namespace bt {
                     break;
                 }
                 case EventType::Execute: {
+                    const auto reaches = [&](const SimOrder &o) { // at the executed price or better
+                        return e.side == Side::BUY ? o.price >= e.price : o.price <= e.price;
+                    };
+                    if (!anyLive(e.side, reaches)) return;
                     const std::uint64_t s = seqOf(e.id);
                     Quantity budget = e.quantity;
                     for (SimOrder *o: liveOrders(e.side)) {
