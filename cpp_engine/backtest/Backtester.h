@@ -239,6 +239,7 @@ namespace bt {
             const auto it = findIn(orders, id);
             return it == orders.end() ? nullptr : &*it;
         }
+        [[nodiscard]] std::span<const SimOrder> exchangeOrders() const { return orders; }
 
         // Send a GTC limit order; it reaches the exchange after the latency.
         // Any part that crosses the book then trades, the rest queues.

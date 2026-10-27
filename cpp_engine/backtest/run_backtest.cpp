@@ -7,6 +7,7 @@
 //                 [--resync cache|memory|online]]
 //                [--latency-us N] [--md-latency-us N] [--size N] [--max-position N] [--horizon-ms N]
 //                [--maker-fee F] [--taker-fee F] [--repeat N]
+//                [--out DIR [--sample-ms N] [--trace-from NS --trace-to NS]]
 //
 // --repeat N replays N times and reports the fastest (the results are the
 // same every time); a 10-level LOBSTER day replays in tens of milliseconds,
@@ -17,17 +18,26 @@
 //           (backtest/DayCache.h); the default
 //   memory  precomputed in memory from the CSVs, nothing written
 //   online  re-synced to the orderbook file after every message
+// --out DIR writes summary.json, series.csv and fills.csv there (see
+// backtest/Trace.h), from one more run after the timed ones, so tracing never
+// slows the timing. --sample-ms sets the series' step; by default the day is
+// cut into about 10,000 samples. --trace-from/--trace-to (feed time, ns
+// since midnight) sample only that window, by default in about 10,000 steps:
+// the viewer re-runs a zoomed window this way. The localhost viewer
+// (ui/server.py) reads these files.
 //
 
 #include "backtest/Backtester.h"
 #include "backtest/DayCache.h"
 #include "backtest/Feeds.h"
 #include "backtest/Strategies.h"
+#include "backtest/Trace.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -43,6 +53,15 @@ namespace {
     double since(const std::chrono::steady_clock::time_point t0) {
         return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     }
+
+    std::string jsonString(const std::string &s) {
+        std::string r = "\"";
+        for (const char c: s) {
+            if (c == '"' || c == '\\') r += '\\';
+            r += c;
+        }
+        return r + "\"";
+    }
 }
 
 int main(const int argc, char **argv) {
@@ -57,6 +76,9 @@ int main(const int argc, char **argv) {
     Quantity size = 10;
     Quantity maxPosition = 200;
     int repeat = 1;
+    std::string outDir;
+    bt::Nanos sampleStep = 0; // 0: about 10,000 samples over the feed
+    bt::Nanos traceFrom = 0, traceTo = 0; // a window of feed time to trace; 0, 0: all of it
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -77,6 +99,10 @@ int main(const int argc, char **argv) {
         else if (a == "--maker-fee") cfg.makerFee = std::stod(v);
         else if (a == "--taker-fee") cfg.takerFee = std::stod(v);
         else if (a == "--repeat") repeat = std::max(1, std::stoi(v));
+        else if (a == "--out") outDir = v;
+        else if (a == "--sample-ms") sampleStep = std::stoll(v) * 1'000'000;
+        else if (a == "--trace-from") traceFrom = std::stoll(v);
+        else if (a == "--trace-to") traceTo = std::stoll(v);
         else usage(("unknown option " + a).c_str());
     }
     if (resync != "cache" && resync != "memory" && resync != "online") usage("--resync takes cache, memory or online");
@@ -120,14 +146,7 @@ int main(const int argc, char **argv) {
                   << " messages from " << ops << " requests\n";
     }
 
-    std::optional<bt::QuoteAtTouch> strategy;
-    std::optional<bt::Backtester> run;
-    double secs = 0;
-    for (int r = 0; r < repeat; ++r) {
-        strategy.emplace(size, maxPosition);
-        run.emplace(cfg, *strategy);
-        bt::Backtester &backtest = *run;
-        const auto t0 = std::chrono::steady_clock::now();
+    const auto replay = [&](bt::Backtester &backtest) {
         if (!lobster.empty() && resync == "online") {
             backtest.seed(day.initial);
             for (std::size_t i = 0; i < day.messages.size(); ++i) {
@@ -143,6 +162,16 @@ int main(const int argc, char **argv) {
         } else {
             backtest.run(events);
         }
+    };
+
+    std::optional<bt::QuoteAtTouch> strategy;
+    std::optional<bt::Backtester> run;
+    double secs = 0;
+    for (int r = 0; r < repeat; ++r) {
+        strategy.emplace(size, maxPosition);
+        run.emplace(cfg, *strategy);
+        const auto t0 = std::chrono::steady_clock::now();
+        replay(*run);
         secs = r == 0 ? since(t0) : std::min(secs, since(t0));
     }
     const bt::Backtester &backtest = *run;
@@ -162,5 +191,63 @@ int main(const int argc, char **argv) {
     std::printf("pnl:      %.1f ticks marked to mid %.1f (fees %.1f)\n", s.pnl(backtest.mid()), backtest.mid(), s.fees);
     std::printf("markout:  %.3f ticks/share after %lld ms\n", s.markoutPerShare(),
                 static_cast<long long>(cfg.markoutHorizon / 1'000'000));
+    if (outDir.empty()) return 0;
+
+    // The traced run.
+    bt::Nanos first = 0, last = 0;
+    if (!lobster.empty() && resync == "online") {
+        for (const auto &m: day.messages) {
+            if (!m) continue;
+            if (first == 0) first = m->time;
+            last = m->time;
+        }
+    } else if (!lobster.empty() && !compiled.events.empty()) {
+        first = compiled.events.front().time, last = compiled.events.back().time;
+    } else if (!events.empty()) {
+        first = events.front().time, last = events.back().time;
+    }
+    if (traceTo <= traceFrom) traceFrom = first, traceTo = last;
+    if (sampleStep <= 0) sampleStep = std::max<bt::Nanos>(1'000, (traceTo - traceFrom) / 10'000);
+    bt::QuoteAtTouch inner(size, maxPosition);
+    bt::Trace trace(inner, sampleStep, traceFrom, traceTo);
+    bt::Backtester traced(cfg, trace);
+    replay(traced);
+    trace.finish(traced);
+    std::filesystem::create_directories(outDir);
+    trace.write(outDir);
+
+    const std::string feed = lobster.empty() ? "synthetic " + std::string(flowName(profile)) : lobster;
+    std::FILE *json = std::fopen((outDir + "/summary.json").c_str(), "w");
+    if (json == nullptr) usage(("cannot write " + outDir + "/summary.json").c_str());
+    std::fprintf(json, "{\n  \"feed\": %s,\n  \"messages\": %llu,\n", jsonString(feed).c_str(),
+                 static_cast<unsigned long long>(s.events));
+    // LOBSTER prices are dollars x 10,000 before the divisor; synthetic prices are bare ticks.
+    std::fprintf(json, "  \"tick_value\": %.6g,\n  \"tick_unit\": \"%s\",\n",
+                 lobster.empty() ? 1.0 : static_cast<double>(priceDivisor) / 10'000.0, lobster.empty() ? "tick" : "$");
+    std::fprintf(json, "  \"time_start\": %lld,\n  \"time_end\": %lld,\n  \"sample_ns\": %lld,\n",
+                 static_cast<long long>(first), static_cast<long long>(last), static_cast<long long>(sampleStep));
+    std::fprintf(json, "  \"replay_seconds\": %.6f,\n  \"messages_per_second\": %.0f,\n", secs,
+                 static_cast<double>(s.events) / secs);
+    std::fprintf(json,
+                 "  \"config\": {\"strategy\": \"QuoteAtTouch\", \"size\": %lld, \"max_position\": %lld, "
+                 "\"order_latency_us\": %lld, \"md_latency_us\": %lld, \"markout_horizon_ms\": %lld, "
+                 "\"maker_fee\": %.6g, \"taker_fee\": %.6g},\n",
+                 static_cast<long long>(size), static_cast<long long>(maxPosition),
+                 static_cast<long long>(cfg.orderLatency / 1'000), static_cast<long long>(cfg.mdLatency / 1'000),
+                 static_cast<long long>(cfg.markoutHorizon / 1'000'000), cfg.makerFee, cfg.takerFee);
+    std::fprintf(json,
+                 "  \"stats\": {\"fills\": %llu, \"maker_volume\": %lld, \"taker_volume\": %lld, "
+                 "\"bought\": %lld, \"sold\": %lld, \"position\": %lld, \"max_abs_position\": %lld, "
+                 "\"cash\": %lld, \"fees\": %.6g, \"pnl\": %.6g, \"mid\": %.6g, "
+                 "\"markout_per_share\": %.6g, \"unknown_orders\": %llu}\n}\n",
+                 static_cast<unsigned long long>(s.fills), static_cast<long long>(s.makerVolume),
+                 static_cast<long long>(s.takerVolume), static_cast<long long>(s.boughtVolume),
+                 static_cast<long long>(s.soldVolume), static_cast<long long>(s.position),
+                 static_cast<long long>(s.maxAbsPosition), static_cast<long long>(s.cash), s.fees,
+                 s.pnl(backtest.exchangeMid()), backtest.exchangeMid(), s.markoutPerShare(),
+                 static_cast<unsigned long long>(s.unknownOrders));
+    std::fclose(json);
+    std::printf("trace:    %zu samples, %zu fills in %s\n", trace.samples().size(), trace.fills().size(),
+                outDir.c_str());
     return 0;
 }

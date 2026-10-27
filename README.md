@@ -297,7 +297,19 @@ mingw32-make latency                   # latency distributions -> benchmark/late
 mingw32-make profile PROFILE_IMPL=engine   # perf on Linux, sampling profiler on Windows
 mingw32-make bench                     # micro-benchmark -> benchmark/results_cpp.json
 mingw32-make replay                    # replayer used by benchmark/compare.py
+mingw32-make backtest                  # market-making backtester (BT_ARGS= for options)
+mingw32-make ui                        # backtest viewer on http://127.0.0.1:8765
 ```
+
+`make ui` builds `lob_backtest` and starts `ui/server.py`, which uses only the
+Python standard library. The page runs backtests on the synthetic flows or on
+any LOBSTER day in `data/lobster/`, with the quote size, position limit,
+order-entry and market-data latency, fees and markout horizon set in the form.
+It plots the touch with our quotes and fills, the position and the PnL, and
+can overlay runs to compare them. Every run is kept in `backtest_out/runs/`
+(summary.json, series.csv, fills.csv). Zooming in re-runs that window on the
+server and samples it finely, since a replay is deterministic and takes tens
+of milliseconds. The run, the compared runs and the zoom are kept in the URL.
 
 Google Benchmark builds through CMake (it is fetched, so it is opt-in):
 

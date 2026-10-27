@@ -9,6 +9,7 @@
 #include "backtest/DayCache.h"
 #include "backtest/Feeds.h"
 #include "backtest/Strategies.h"
+#include "backtest/Trace.h"
 #include "harness/op.h"
 
 #include <filesystem>
@@ -416,6 +417,42 @@ TEST(backtest_quote_at_touch_with_md_latency) {
     CHECK_EQ(s.position, s.boughtVolume - s.soldVolume);
     CHECK_EQ(b.position(), s.position); // every fill reported by the end
     CHECK_EQ(s.markoutVolume, s.boughtVolume + s.soldVolume);
+}
+
+TEST(trace_records_every_fill_and_samples_on_the_grid) {
+    const FlowParams params = flowProfile(0);
+    const auto feed = bt::syntheticFeed(6, 30'000, params);
+    bt::Config c;
+    c.minPrice = params.minPrice;
+    c.maxPrice = params.maxPrice;
+    c.orderLatency = 20'000;
+    c.mdLatency = 10'000;
+    bt::QuoteAtTouch inner(5, 50);
+    const bt::Nanos step = 1'000'000'000;
+    bt::Trace trace(inner, step);
+    bt::Backtester b(c, trace);
+    b.run(feed);
+    trace.finish(b);
+
+    const bt::Stats &s = b.stats();
+    CHECK(s.fills > 0);
+    CHECK_EQ(trace.fills().size(), s.fills);
+    CHECK_EQ(trace.fills().back().position, s.position);
+    CHECK_EQ(trace.samples().back().position, s.position);
+    CHECK(trace.samples().back().pnl == s.pnl(b.exchangeMid()));
+    bool ordered = true, onGrid = true, quotesInBook = true;
+    for (std::size_t i = 1; i < trace.samples().size(); ++i) {
+        const auto &prev = trace.samples()[i - 1];
+        const auto &x = trace.samples()[i];
+        ordered = ordered && x.time > prev.time;
+        // one sample per grid step at most (the last may fall anywhere)
+        onGrid = onGrid && (i + 1 == trace.samples().size() || x.time / step > prev.time / step);
+        quotesInBook = quotesInBook && (!x.ourBid || *x.ourBid >= params.minPrice) && (!x.ourAsk || *x.ourAsk <= params.maxPrice);
+    }
+    CHECK(ordered);
+    CHECK(onGrid);
+    CHECK(quotesInBook);
+    CHECK(trace.samples().size() > 10);
 }
 
 // ---- LOBSTER snapshots and placeholder volume ----------------------------------------

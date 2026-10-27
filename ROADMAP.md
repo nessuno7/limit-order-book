@@ -234,6 +234,15 @@ Next, roughly in order:
    is unchanged within noise (the view is chosen once; a branch on every
    accessor call cost 4%). With it, the replay runs at about 5.5 M msg/s,
    since every message is applied to two books.
+   **Viewer.** `make ui` serves a local page (`ui/`, standard-library
+   Python, no JavaScript dependencies) that runs the backtester and plots
+   each run: the touch, our quotes and fills, the position and the PnL, with
+   runs overlaid for comparison. `lob_backtest --out DIR` writes what it
+   plots: `summary.json`, `series.csv` and `fills.csv`, recorded by
+   `backtest/Trace.h`, which wraps any strategy. The trace comes from one
+   extra untimed run, so speeds stay honest. A zoomed window is re-run with
+   `--trace-from/--trace-to` and sampled finely (about 0.2 s round trip on
+   the LOBSTER day).
 3. **A market-impact option.** Let our fills consume the aggressor's volume:
    group a burst of executions with the same timestamp into one aggressor,
    fill us from it, and shrink what reaches the historical orders behind us.

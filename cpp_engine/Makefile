@@ -68,7 +68,7 @@ OPS ?= 1000000
 SEEDS ?= 6
 
 .DEFAULT_GOAL := help
-.PHONY: help lib app run test bench replay fuzz mutants latency backtest lobster-check profile release clean print-srcs
+.PHONY: help lib app run test bench replay fuzz mutants latency backtest ui lobster-check profile release clean print-srcs
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$'  $(firstword $(MAKEFILE_LIST)) | \
@@ -146,6 +146,12 @@ backtest: ## Run the market-making backtester on a synthetic feed (BT_ARGS= pass
 
 $(BACKTEST_BIN): $(BACKTEST_OBJ)
 	$(CXX) $(LDFLAGS) $^ -o $@
+
+# The localhost viewer: runs the backtester from a web page and plots the result.
+UI_PORT ?= 8765
+ui: ## Open the backtest viewer on http://127.0.0.1:8765 (UI_PORT= changes it)
+	@$(MAKE) --no-print-directory BUILD=release $(BACKTEST_BIN)
+	python ../ui/server.py --port $(UI_PORT)
 
 # LOBSTER sample files unzip into ../data/lobster (git-ignored).
 LOBSTER_DIR ?= ../data/lobster

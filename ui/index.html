@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backtest Viewer</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5d6673; --faint: #8a93a0;
+  --line: #e2e5ea; --grid: #eef0f3; --accent: #2f6fde; --accent-ink: #ffffff;
+  --bid: #2f6fde; --ask: #d9622b; --buy: #2f6fde; --sell: #d9622b;
+  --pos: #6b4fbb; --pnl: #1d8a5b; --neg: #c2413a; --hover: rgba(47,111,222,.08);
+  --cmp0: #1d8a5b; --cmp1: #6b4fbb; --cmp2: #b8860b; --cmp3: #c2413a; --cmp4: #0f8a9d; --cmp5: #8a5a44;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #191d23; --ink: #e6e9ee; --muted: #a0a8b4; --faint: #737c88;
+    --line: #2a3038; --grid: #222830; --accent: #5b8ff0; --accent-ink: #0b0e12;
+    --bid: #5b8ff0; --ask: #f08a54; --buy: #5b8ff0; --sell: #f08a54;
+    --pos: #a18ae6; --pnl: #42c18a; --neg: #ee6b63; --hover: rgba(91,143,240,.12);
+    --cmp0: #42c18a; --cmp1: #a18ae6; --cmp2: #e0b84a; --cmp3: #ee6b63; --cmp4: #3fc1d3; --cmp5: #c8977d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #191d23; --ink: #e6e9ee; --muted: #a0a8b4; --faint: #737c88;
+  --line: #2a3038; --grid: #222830; --accent: #5b8ff0; --accent-ink: #0b0e12;
+  --bid: #5b8ff0; --ask: #f08a54; --buy: #5b8ff0; --sell: #f08a54;
+  --pos: #a18ae6; --pnl: #42c18a; --neg: #ee6b63; --hover: rgba(91,143,240,.12);
+  --cmp0: #42c18a; --cmp1: #a18ae6; --cmp2: #e0b84a; --cmp3: #ee6b63; --cmp4: #3fc1d3; --cmp5: #c8977d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+header .sub { color: var(--muted); font-size: 13px; }
+header .spacer { flex: 1; }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: calc(100vh - 52px); }
+aside { border-right: 1px solid var(--line); background: var(--panel); padding: 16px; overflow-y: auto; }
+main { padding: 16px 20px 40px; min-width: 0; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  margin: 0 0 10px; font-weight: 600; }
+.field { display: grid; grid-template-columns: 1fr 110px; align-items: center; gap: 8px; margin-bottom: 8px; }
+.field label { color: var(--muted); font-size: 13px; }
+.field small { color: var(--faint); }
+select, input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; width: 100%; }
+select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.full select { width: 100%; margin-bottom: 10px; font-size: 13px; }
+button { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink); padding: 6px 12px; cursor: pointer; }
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  font-weight: 600; width: 100%; padding: 8px; margin-top: 6px; }
+button.primary:disabled { opacity: .6; cursor: progress; }
+.error { color: var(--neg); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+.note { color: var(--faint); font-size: 12px; margin-top: 6px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
+.runs { list-style: none; margin: 0; padding: 0; }
+.runs li { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: start;
+  padding: 8px 6px; border-radius: 6px; cursor: pointer; }
+.runs li:hover { background: var(--hover); }
+.runs li.selected { background: var(--hover); box-shadow: inset 3px 0 0 var(--accent); }
+.runs .title { font-size: 13px; font-weight: 550; }
+.runs .meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.runs .del { border: 0; background: none; color: var(--faint); padding: 0 4px; font-size: 16px; line-height: 1; }
+.runs .del:hover { color: var(--neg); }
+.runs input[type=checkbox] { width: auto; margin: 3px 0 0; accent-color: var(--accent); }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.kpi .k { font-size: 12px; color: var(--muted); }
+.kpi .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.kpi .s { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.pos { color: var(--pnl); } .negv { color: var(--neg); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; }
+.card-head { display: flex; align-items: center; gap: 14px; padding: 10px 14px 0; flex-wrap: wrap; }
+.card-head h3 { font-size: 13px; margin: 0; font-weight: 600; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 5px;
+  vertical-align: middle; background: var(--c); border-radius: 2px; }
+.legend span.dash::before { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
+.legend span.tri::before { width: 0; height: 0; background: none; border-left: 5px solid transparent;
+  border-right: 5px solid transparent; border-bottom: 8px solid var(--c); }
+.legend span.trid::before { width: 0; height: 0; background: none; border-left: 5px solid transparent;
+  border-right: 5px solid transparent; border-top: 8px solid var(--c); }
+.chart { position: relative; height: var(--h, 220px); margin: 4px 6px 6px; touch-action: none; }
+.chart canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.chart canvas.overlay { cursor: crosshair; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; flex-wrap: wrap; }
+.toolbar .hint { color: var(--faint); font-size: 12px; }
+.tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  font-variant-numeric: tabular-nums; display: none; z-index: 10; min-width: 170px; }
+.tip b { font-weight: 600; }
+.tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.tip .row span:first-child { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 5px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+.scroll { max-height: 320px; overflow: auto; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+pre { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all;
+  margin: 0; padding: 10px 14px 14px; color: var(--muted); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  .two { grid-template-columns: 1fr; }
+  main { padding: 12px 16px 32px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Backtest viewer</h1>
+  <span class="sub">market-making backtester · cpp_engine/backtest</span>
+  <span class="spacer"></span>
+  <button id="theme" title="Switch light / dark">Theme</button>
+</header>
+<div class="layout">
+  <aside>
+    <h2>New run</h2>
+    <form id="form" autocomplete="off">
+      <div class="full"><select id="dataset" aria-label="Dataset"></select></div>
+      <div class="field"><label for="size">Quote size <small>shares</small></label><input id="size" type="number" min="1"></div>
+      <div class="field"><label for="max_position">Position limit <small>shares</small></label><input id="max_position" type="number" min="0"></div>
+      <div class="field"><label for="order_latency_us">Order entry latency <small>µs</small></label><input id="order_latency_us" type="number" min="0"></div>
+      <div class="field"><label for="md_latency_us">Market data latency <small>µs</small></label><input id="md_latency_us" type="number" min="0"></div>
+      <div class="field"><label for="markout_horizon_ms">Markout horizon <small>ms</small></label><input id="markout_horizon_ms" type="number" min="1"></div>
+      <div class="field"><label for="maker_fee">Maker fee <small>ticks/share</small></label><input id="maker_fee" type="number" step="any"></div>
+      <div class="field"><label for="taker_fee">Taker fee <small>ticks/share</small></label><input id="taker_fee" type="number" step="any"></div>
+      <div id="synthOnly">
+        <div class="field"><label for="seed">Seed</label><input id="seed" type="number" min="0"></div>
+        <div class="field"><label for="ops">Requests</label><input id="ops" type="number" min="1000" step="1000"></div>
+      </div>
+      <div class="field"><label for="sample_ms">Sample step <small>ms, 0 = auto</small></label><input id="sample_ms" type="number" min="0"></div>
+      <button class="primary" id="runBtn" type="submit">Run backtest</button>
+      <div class="error" id="formError" role="alert"></div>
+      <div class="note">Strategy: QuoteAtTouch, which joins both sides of the touch.
+        Negative fee = rebate.</div>
+    </form>
+    <hr>
+    <h2>Runs <span id="runCount" style="text-transform:none;letter-spacing:0;color:var(--faint)"></span></h2>
+    <div class="note" style="margin:-4px 0 8px">Click to open. Tick to overlay in the PnL chart and the comparison table.</div>
+    <ul class="runs" id="runs"></ul>
+  </aside>
+  <main id="main">
+    <div class="empty" id="emptyState">No run selected. Configure one on the left and press <b>Run backtest</b>.</div>
+    <div id="view" hidden>
+      <div class="toolbar">
+        <strong id="viewTitle"></strong>
+        <span class="spacer" style="flex:1"></span>
+        <span class="hint" id="detailNote"></span>
+        <span class="hint">Drag across a chart to zoom · double-click to reset</span>
+        <button id="resetZoom">Reset zoom</button>
+      </div>
+      <div class="kpis" id="kpis"></div>
+
+      <div class="card">
+        <div class="card-head"><h3>Touch, our quotes and fills</h3>
+          <div class="legend">
+            <span style="--c:var(--bid)">best bid</span><span style="--c:var(--ask)">best ask</span>
+            <span class="dash" style="--c:var(--bid)">our bid</span><span class="dash" style="--c:var(--ask)">our ask</span>
+            <span class="tri" style="--c:var(--buy)">we buy</span><span class="trid" style="--c:var(--sell)">we sell</span>
+          </div></div>
+        <div class="chart" id="cPrice" style="--h:300px"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Position</h3><div class="legend"><span style="--c:var(--pos)">shares held (exchange side)</span></div></div>
+        <div class="chart" id="cPos" style="--h:150px"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>PnL, marked to mid, after fees</h3><div class="legend" id="pnlLegend"></div></div>
+        <div class="chart" id="cPnl" style="--h:220px"></div>
+      </div>
+
+      <div class="card" id="cmpCard" hidden>
+        <div class="card-head"><h3>Comparison</h3></div>
+        <div class="scroll" style="padding:6px 4px 8px"><table id="cmpTable"></table></div>
+      </div>
+
+      <div class="two">
+        <div class="card">
+          <div class="card-head"><h3 id="fillsTitle">Fills</h3></div>
+          <div class="scroll" style="padding:6px 4px 8px"><table id="fillsTable"></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Run</h3></div>
+          <pre id="runInfo"></pre>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const FIELDS = ["size", "max_position", "order_latency_us", "md_latency_us", "markout_horizon_ms",
+                "maker_fee", "taker_fee", "seed", "ops", "sample_ms"];
+const state = { datasets: [], runs: [], current: null, compare: new Set(), cache: new Map(), x0: null, x1: null, hoverT: null,
+                detail: null, detailToken: 0 };
+
+// ── theme ──────────────────────────────────────────────────────────────
+function applyTheme(t) {
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+}
+try { applyTheme(localStorage.getItem("lob-ui-theme")); } catch (e) {}
+$("theme").onclick = () => {
+  const dark = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() === "#111418";
+  const t = dark ? "light" : "dark";
+  applyTheme(t);
+  try { localStorage.setItem("lob-ui-theme", t); } catch (e) {}
+  redrawAll();
+};
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ── formatting ─────────────────────────────────────────────────────────
+const nf0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtTime(ns, fine) {
+  const ms = Math.floor(ns / 1e6), s = Math.floor(ms / 1000);
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0"), mm = String(Math.floor(s / 60) % 60).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}` + (fine ? "." + String(ms % 1000).padStart(3, "0") : "");
+}
+function unitOf(run) { return run.summary.tick_unit === "$" ? "$" : "tick"; }
+function money(run, ticks) {   // ticks x shares -> display
+  if (ticks == null) return "–";
+  const v = ticks * run.summary.tick_value;
+  return unitOf(run) === "$" ? (v < 0 ? "−$" : "$") + nf2.format(Math.abs(v)) : nf0.format(v) + " ticks";
+}
+function price(run, p) {
+  if (p == null) return "–";
+  return unitOf(run) === "$" ? "$" + (p * run.summary.tick_value).toFixed(2) : nf0.format(p);
+}
+function runTitle(r) { return r.dataset_label; }
+function runSub(r) {
+  const p = r.params;
+  return `${p.order_latency_us}+${p.md_latency_us} µs · size ${p.size} · limit ${p.max_position}`;
+}
+
+// ── API ────────────────────────────────────────────────────────────────
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json().catch(() => ({ error: res.statusText }));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+async function fullRun(id) {
+  if (!state.cache.has(id)) state.cache.set(id, await api(`/api/runs/${id}`));
+  return state.cache.get(id);
+}
+
+// ── sidebar ────────────────────────────────────────────────────────────
+async function init() {
+  const d = await api("/api/datasets");
+  state.datasets = d.datasets;
+  const sel = $("dataset");
+  sel.innerHTML = d.datasets.map(s => `<option value="${s.id}">${s.label}</option>`).join("");
+  const levels = s => Number((s.label.match(/(\d+) levels?$/) || [0, 0])[1]);
+  const lob = d.datasets.filter(s => s.kind === "lobster").sort((a, b) => levels(b) - levels(a))[0];
+  if (lob) sel.value = lob.id;
+  for (const f of FIELDS) $(f).value = d.params[f];
+  sel.onchange = syncForm;
+  syncForm();
+  if (!d.executable) $("formError").textContent = "lob_backtest is not built yet: run `make ui` in cpp_engine/.";
+  await refreshRuns();
+  const h = new URLSearchParams(location.hash.slice(1));
+  const wanted = h.get("run");
+  if (wanted && state.runs.some(r => r.id === wanted)) {
+    for (const id of (h.get("cmp") || "").split(",")) if (state.runs.some(r => r.id === id)) state.compare.add(id);
+    await select(wanted);
+    if (h.get("t0") && h.get("t1")) zoomTo(Number(h.get("t0")), Number(h.get("t1")));
+  } else if (state.runs.length) select(state.runs[0].id);
+}
+function syncForm() {
+  const ds = state.datasets.find(s => s.id === $("dataset").value);
+  $("synthOnly").hidden = !ds || ds.kind !== "synthetic";
+}
+async function refreshRuns() {
+  state.runs = (await api("/api/runs")).runs;
+  $("runCount").textContent = state.runs.length ? `(${state.runs.length})` : "";
+  const colors = compareColors();
+  $("runs").innerHTML = state.runs.length ? state.runs.map(r => {
+    const pnl = r.summary.stats.pnl;
+    const c = colors.get(r.id);
+    return `<li data-id="${r.id}" class="${state.current && state.current.id === r.id ? "selected" : ""}">
+      <input type="checkbox" data-cmp="${r.id}" ${state.compare.has(r.id) ? "checked" : ""} title="Compare"
+        style="${c ? `accent-color:${c}` : ""}">
+      <div><div class="title">${c ? `<span class="swatch" style="background:${c}"></span>` : ""}${runTitle(r)}</div>
+        <div class="meta">${runSub(r)}</div>
+        <div class="meta"><span class="${pnl >= 0 ? "pos" : "negv"}">${money(r, pnl)}</span> · ${nf0.format(r.summary.stats.fills)} fills · ${r.id.slice(9, 11)}:${r.id.slice(11, 13)}:${r.id.slice(13, 15)}</div></div>
+      <button class="del" data-del="${r.id}" title="Delete run" aria-label="Delete run">×</button></li>`;
+  }).join("") : `<li style="cursor:default;color:var(--faint)"><span></span>No runs yet.</li>`;
+}
+$("runs").addEventListener("click", async e => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    e.stopPropagation();
+    const id = del.dataset.del;
+    await api(`/api/runs/${id}`, { method: "DELETE" });
+    state.compare.delete(id); state.cache.delete(id);
+    if (state.current && state.current.id === id) { state.current = null; showView(false); }
+    await refreshRuns();
+    if (!state.current && state.runs.length) select(state.runs[0].id);
+    else render();
+    return;
+  }
+  const cmp = e.target.closest("[data-cmp]");
+  if (cmp) {
+    const id = cmp.dataset.cmp;
+    if (cmp.checked) { state.compare.add(id); await fullRun(id); } else state.compare.delete(id);
+    await refreshRuns(); saveHash(); render();
+    return;
+  }
+  const li = e.target.closest("li[data-id]");
+  if (li) select(li.dataset.id);
+});
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = { dataset: $("dataset").value };
+  for (const f of FIELDS) body[f] = Number($(f).value);
+  $("runBtn").disabled = true; $("runBtn").textContent = "Running…"; $("formError").textContent = "";
+  try {
+    const r = await api("/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (state.current) state.compare.add(state.current.id);   // keep the previous run in view for comparison
+    state.compare.add(r.id);
+    await refreshRuns();
+    await select(r.id);
+  } catch (err) {
+    $("formError").textContent = err.message;
+  } finally {
+    $("runBtn").disabled = false; $("runBtn").textContent = "Run backtest";
+  }
+});
+function compareColors() {
+  const m = new Map(); let i = 0;
+  const ids = [...state.compare].filter(id => state.runs.some(r => r.id === id));
+  for (const id of ids) m.set(id, css(`--cmp${i++ % 6}`));
+  return m;
+}
+// The open run, the compared runs and the zoom live in the URL, so a view can be bookmarked.
+function saveHash() {
+  if (!state.current) return;
+  const h = new URLSearchParams({ run: state.current.id });
+  const cmp = [...state.compare].filter(id => id !== state.current.id);
+  if (cmp.length) h.set("cmp", cmp.join(","));
+  if (state.x0 != null) { h.set("t0", Math.round(state.x0)); h.set("t1", Math.round(state.x1)); }
+  history.replaceState(null, "", "#" + h.toString());
+}
+function zoomTo(a, b) {
+  if (a == null) state.x0 = state.x1 = null; else { state.x0 = a; state.x1 = b; }
+  saveHash();
+  redrawAll();
+  refine();
+}
+
+// The stored series has ~10,000 samples over the whole day, too coarse a few
+// seconds in. A zoomed window is re-run on the server (the replay is
+// deterministic and takes tens of ms) and sampled finely over just that window.
+function seriesFor(r) {
+  const d = state.detail;
+  if (d && d.id === r.id && state.x0 != null && d.t0 <= state.x0 && d.t1 >= state.x1) return d.series;
+  return r.series;
+}
+function visible(t, a, b) { return lowerBound(t, b + 1) - lowerBound(t, a); }
+let refineTimer = null;
+function refine() {
+  clearTimeout(refineTimer);
+  const r = state.current;
+  if (!r || state.x0 == null) { $("detailNote").textContent = ""; return; }
+  const a = state.x0, b = state.x1, s = seriesFor(r);
+  if (visible(s.time, a, b) >= 1500) return;
+  const token = ++state.detailToken;
+  $("detailNote").textContent = "re-sampling this window…";
+  refineTimer = setTimeout(async () => {
+    try {
+      const w = await api(`/api/runs/${r.id}/window?t0=${Math.floor(a)}&t1=${Math.ceil(b)}`);
+      if (token !== state.detailToken || state.current !== r) return;
+      state.detail = w;
+      $("detailNote").textContent = `re-sampled: ${nf0.format(w.series.time.length)} points in view ·`;
+      redrawAll();
+    } catch (err) {
+      if (token === state.detailToken) $("detailNote").textContent = "re-sampling failed: " + err.message;
+    }
+  }, 120);
+}
+async function select(id) {
+  state.current = await fullRun(id);
+  state.x0 = state.x1 = null;
+  state.detail = null; $("detailNote").textContent = "";
+  for (const id2 of state.compare) await fullRun(id2).catch(() => state.compare.delete(id2));
+  await refreshRuns();
+  showView(true);
+  saveHash();
+  render();
+}
+function showView(on) { $("view").hidden = !on; $("emptyState").hidden = on; }
+
+// ── rendering ──────────────────────────────────────────────────────────
+function render() {
+  const r = state.current;
+  if (!r) return;
+  const s = r.summary.stats, c = r.summary.config;
+  $("viewTitle").textContent = `${r.dataset_label} · ${runSub(r)}`;
+  const kpi = (k, v, sub, cls = "") => `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s">${sub}</div></div>`;
+  const mk = s.markout_per_share;
+  $("kpis").innerHTML =
+    kpi("PnL", money(r, s.pnl), `fees ${money(r, s.fees)}`, s.pnl >= 0 ? "pos" : "negv") +
+    kpi("Fills", nf0.format(s.fills), `${nf0.format(s.maker_volume)} maker · ${nf0.format(s.taker_volume)} taker shares`) +
+    kpi("Markout", (mk >= 0 ? "+" : "") + mk.toFixed(3), `ticks/share after ${c.markout_horizon_ms} ms`, mk >= 0 ? "pos" : "negv") +
+    kpi("Position", nf0.format(s.position), `at the end · ${nf0.format(s.max_abs_position)} at most`) +
+    kpi("Volume", nf0.format(s.bought + s.sold), `bought ${nf0.format(s.bought)} · sold ${nf0.format(s.sold)}`) +
+    kpi("Replay", (r.summary.messages_per_second / 1e6).toFixed(1) + " M/s", `${nf0.format(r.summary.messages)} messages`);
+  const info = [
+    `run      ${r.id}`, `feed     ${r.summary.feed}`,
+    `samples  every ${fmtDuration(r.summary.sample_ns)}, ${nf0.format(r.series.time.length)} points`,
+    "", r.stdout.trim()].join("\n");
+  $("runInfo").textContent = info;
+  renderCompare();
+  redrawAll();
+}
+function fmtDuration(ns) {
+  if (ns >= 60e9) return (ns / 60e9).toFixed(1) + " min";
+  if (ns >= 1e9) return (ns / 1e9).toFixed(2) + " s";
+  return (ns / 1e6).toFixed(1) + " ms";
+}
+function renderCompare() {
+  const colors = compareColors();
+  const runs = [...state.compare].map(id => state.cache.get(id)).filter(Boolean);
+  $("cmpCard").hidden = runs.length < 2;
+  if (runs.length < 2) return;
+  const head = ["Run", "Order µs", "Data µs", "Size", "Limit", "Fills", "Maker", "Taker", "Max |pos|", "Markout", "PnL"];
+  $("cmpTable").innerHTML = `<thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>` +
+    runs.map(r => {
+      const s = r.summary.stats, p = r.params;
+      return `<tr><td><span class="swatch" style="background:${colors.get(r.id)}"></span>${r.dataset_label}</td>
+        <td>${p.order_latency_us}</td><td>${p.md_latency_us}</td><td>${p.size}</td><td>${p.max_position}</td>
+        <td>${nf0.format(s.fills)}</td><td>${nf0.format(s.maker_volume)}</td><td>${nf0.format(s.taker_volume)}</td>
+        <td>${nf0.format(s.max_abs_position)}</td><td>${s.markout_per_share.toFixed(3)}</td>
+        <td class="${s.pnl >= 0 ? "pos" : "negv"}">${money(r, s.pnl)}</td></tr>`;
+    }).join("") + "</tbody>";
+}
+function renderFills() {
+  const r = state.current, f = r.fills;
+  const [x0, x1] = range();
+  const lo = lowerBound(f.time, x0), hi = lowerBound(f.time, x1 + 1);
+  const n = hi - lo, shown = Math.min(n, 300);
+  $("fillsTitle").textContent = `Fills in view: ${nf0.format(n)}` + (n > shown ? ` (first ${shown})` : "");
+  let rows = "";
+  for (let i = lo; i < lo + shown; i++) {
+    rows += `<tr><td>${fmtTime(f.time[i], true)}</td><td style="color:var(--${f.side[i]})">${f.side[i]}</td>
+      <td>${price(r, f.price[i])}</td><td>${nf0.format(f.quantity[i])}</td><td>${f.maker[i] ? "maker" : "taker"}</td>
+      <td>${nf0.format(f.position[i])}</td></tr>`;
+  }
+  $("fillsTable").innerHTML = `<thead><tr><th>Time</th><th>Side</th><th>Price</th><th>Qty</th><th>Role</th><th>Position</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+// ── charts ─────────────────────────────────────────────────────────────
+function lowerBound(a, x) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; }
+function fullRange() {
+  const runs = [state.current, ...[...state.compare].map(id => state.cache.get(id))].filter(Boolean);
+  let a = Infinity, b = -Infinity;
+  for (const r of runs) { const t = r.series.time; if (t.length) { a = Math.min(a, t[0]); b = Math.max(b, t[t.length - 1]); } }
+  return a < b ? [a, b] : [a, a + 1];
+}
+function range() { return state.x0 == null ? fullRange() : [state.x0, state.x1]; }
+
+class Chart {
+  constructor(host, spec) {
+    this.host = host; this.spec = spec;
+    this.base = document.createElement("canvas");
+    this.over = document.createElement("canvas"); this.over.className = "overlay";
+    host.append(this.base, this.over);
+    this.pad = { l: 72, r: 14, t: 10, b: 24 };
+    this.drag = null;
+    this.over.addEventListener("pointerdown", e => { this.over.setPointerCapture(e.pointerId); this.drag = { a: this.px(e), b: this.px(e) }; });
+    this.over.addEventListener("pointermove", e => {
+      const x = this.px(e);
+      if (this.drag) this.drag.b = x;
+      state.hoverT = this.tAt(x);
+      hover(e, this);
+    });
+    this.over.addEventListener("pointerup", e => {
+      const d = this.drag; this.drag = null;
+      if (d && Math.abs(d.b - d.a) > 4) {
+        const a = this.tAt(Math.min(d.a, d.b)), b = this.tAt(Math.max(d.a, d.b));
+        if (b - a > 1000) zoomTo(a, b);
+      }
+      drawOverlays();
+    });
+    this.over.addEventListener("pointerleave", () => { if (!this.drag) { state.hoverT = null; $("tip").style.display = "none"; drawOverlays(); } });
+    this.over.addEventListener("dblclick", () => zoomTo(null));
+  }
+  px(e) { const b = this.over.getBoundingClientRect(); return e.clientX - b.left; }
+  size() {
+    const w = this.host.clientWidth, h = this.host.clientHeight, dpr = window.devicePixelRatio || 1;
+    for (const c of [this.base, this.over]) {
+      if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    }
+    this.w = w; this.h = h; this.dpr = dpr;
+  }
+  tAt(x) { const [a, b] = this.xr; return a + (x - this.pad.l) / (this.w - this.pad.l - this.pad.r) * (b - a); }
+  X(t) { const [a, b] = this.xr; return this.pad.l + (t - a) / (b - a) * (this.w - this.pad.l - this.pad.r); }
+  Y(v) { const [a, b] = this.yr; return this.pad.t + (1 - (v - a) / (b - a)) * (this.h - this.pad.t - this.pad.b); }
+  draw() {
+    this.size();
+    this.xr = range();
+    const layers = this.spec.layers();
+    // y range over what is visible
+    let lo = Infinity, hi = -Infinity;
+    for (const L of layers) {
+      const t = L.t, v = L.v, i0 = Math.max(0, lowerBound(t, this.xr[0]) - 1), i1 = Math.min(t.length, lowerBound(t, this.xr[1]) + 1);
+      for (let i = i0; i < i1; i++) { const y = v[i]; if (y != null) { if (y < lo) lo = y; if (y > hi) hi = y; } }
+    }
+    if (this.spec.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+    const m = (hi - lo) * 0.06; this.yr = [lo - m, hi + m];
+
+    const g = this.base.getContext("2d");
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    g.clearRect(0, 0, this.w, this.h);
+    this.axes(g);
+    g.save();
+    g.beginPath(); g.rect(this.pad.l, this.pad.t, this.w - this.pad.l - this.pad.r, this.h - this.pad.t - this.pad.b); g.clip();
+    if (this.spec.zero) { g.strokeStyle = css("--faint"); g.lineWidth = 1; g.beginPath(); g.moveTo(this.pad.l, this.Y(0)); g.lineTo(this.w - this.pad.r, this.Y(0)); g.stroke(); }
+    for (const L of layers) L.markers ? this.markers(g, L) : this.line(g, L);
+    g.restore();
+  }
+  axes(g) {
+    const fs = 11; g.font = `${fs}px system-ui, sans-serif`; g.fillStyle = css("--faint"); g.strokeStyle = css("--grid"); g.lineWidth = 1;
+    // y ticks
+    const [ya, yb] = this.yr, ys = niceStep((yb - ya) / Math.max(2, Math.floor(this.h / 45)));
+    g.textAlign = "right"; g.textBaseline = "middle";
+    for (let v = Math.ceil(ya / ys) * ys; v <= yb; v += ys) {
+      const y = Math.round(this.Y(v)) + .5;
+      g.beginPath(); g.moveTo(this.pad.l, y); g.lineTo(this.w - this.pad.r, y); g.stroke();
+      g.fillText(this.spec.yFmt(Math.abs(v) < ys / 2 ? 0 : v, ys), this.pad.l - 8, y);
+    }
+    // x ticks
+    const [xa, xb] = this.xr, steps = [1e6, 2e6, 5e6, 1e7, 2e7, 5e7, 1e8, 2e8, 5e8, 1e9, 2e9, 5e9, 1e10, 15e9, 3e10, 6e10, 12e10, 3e11, 6e11, 9e11, 18e11, 36e11];
+    const want = (xb - xa) / Math.max(2, Math.floor((this.w - this.pad.l) / 110));
+    const xs = steps.find(s => s >= want) || 36e11;
+    g.textAlign = "center"; g.textBaseline = "top";
+    for (let t = Math.ceil(xa / xs) * xs; t <= xb; t += xs) {
+      const x = Math.round(this.X(t)) + .5;
+      g.beginPath(); g.moveTo(x, this.pad.t); g.lineTo(x, this.h - this.pad.b); g.stroke();
+      const label = fmtTime(t, xs < 1e9), half = g.measureText(label).width / 2;
+      if (x - half >= this.pad.l - 30 && x + half <= this.w - 2) g.fillText(label, x, this.h - this.pad.b + 6);
+    }
+  }
+  // Lines are min/max-decimated per pixel column, so a day draws as fast as a minute.
+  line(g, L) {
+    const t = L.t, v = L.v, i0 = Math.max(0, lowerBound(t, this.xr[0]) - 1), i1 = Math.min(t.length, lowerBound(t, this.xr[1]) + 1);
+    g.strokeStyle = L.color; g.lineWidth = L.width || 1.5; g.setLineDash(L.dash || []); g.lineJoin = "round";
+    g.beginPath();
+    let pen = false, col = null, mn = 0, mx = 0, lastY = 0;
+    const flush = () => { if (col != null) { g.lineTo(col, this.Y(mn)); g.lineTo(col, this.Y(mx)); g.lineTo(col, this.Y(lastY)); } };
+    for (let i = i0; i < i1; i++) {
+      const y = v[i];
+      if (y == null) { flush(); col = null; pen = false; continue; }
+      const x = Math.round(this.X(t[i]));
+      if (!pen) { g.moveTo(x, this.Y(y)); pen = true; col = x; mn = mx = lastY = y; continue; }
+      if (x === col) { mn = Math.min(mn, y); mx = Math.max(mx, y); lastY = y; continue; }
+      flush();
+      if (L.step) g.lineTo(x, this.Y(lastY));
+      g.lineTo(x, this.Y(y)); col = x; mn = mx = lastY = y;
+    }
+    flush();
+    g.stroke(); g.setLineDash([]);
+  }
+  markers(g, L) {
+    const t = L.t, v = L.v, i0 = lowerBound(t, this.xr[0]), i1 = lowerBound(t, this.xr[1] + 1);
+    const many = i1 - i0 > 4000;
+    for (const [side, color, up] of [["buy", css("--buy"), true], ["sell", css("--sell"), false]]) {
+      g.fillStyle = color; g.beginPath();
+      for (let i = i0; i < i1; i++) {
+        if (L.side[i] !== side) continue;
+        const x = this.X(t[i]), y = this.Y(v[i]);
+        if (many) { g.rect(x - 1, y - 1, 2, 2); continue; }
+        const s = 4.5, o = up ? 2 : -2;
+        g.moveTo(x, y + o + (up ? -s : s)); g.lineTo(x - s, y + o + (up ? s * .6 : -s * .6)); g.lineTo(x + s, y + o + (up ? s * .6 : -s * .6)); g.closePath();
+      }
+      g.fill();
+    }
+  }
+  overlay() {
+    const g = this.over.getContext("2d");
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    g.clearRect(0, 0, this.w, this.h);
+    if (this.drag) {
+      g.fillStyle = css("--hover");
+      g.fillRect(Math.min(this.drag.a, this.drag.b), this.pad.t, Math.abs(this.drag.b - this.drag.a), this.h - this.pad.t - this.pad.b);
+    }
+    if (state.hoverT == null || !this.xr) return;
+    const x = Math.round(this.X(state.hoverT)) + .5;
+    if (x < this.pad.l || x > this.w - this.pad.r) return;
+    g.strokeStyle = css("--faint"); g.setLineDash([3, 3]); g.beginPath(); g.moveTo(x, this.pad.t); g.lineTo(x, this.h - this.pad.b); g.stroke();
+  }
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+
+const charts = [];
+function makeCharts() {
+  const priceFmt = (v, step) => {
+    const r = state.current; if (!r) return "";
+    if (unitOf(r) !== "$") return nf0.format(v);
+    const d = step * r.summary.tick_value < 0.01 ? 3 : 2;
+    return "$" + (v * r.summary.tick_value).toFixed(d);
+  };
+  charts.push(new Chart($("cPrice"), {
+    yFmt: priceFmt,
+    layers: () => {
+      const s = seriesFor(state.current), f = state.current.fills;
+      return [
+        { t: s.time, v: s.bid, color: css("--bid"), step: true, width: 1.2 },
+        { t: s.time, v: s.ask, color: css("--ask"), step: true, width: 1.2 },
+        { t: s.time, v: s.our_bid, color: css("--bid"), step: true, dash: [4, 3], width: 1.6 },
+        { t: s.time, v: s.our_ask, color: css("--ask"), step: true, dash: [4, 3], width: 1.6 },
+        { t: f.time, v: f.price, side: f.side, markers: true },
+      ];
+    },
+  }));
+  charts.push(new Chart($("cPos"), {
+    zero: true, yFmt: v => nf0.format(v),
+    layers: () => { const s = seriesFor(state.current); return [{ t: s.time, v: s.position, color: css("--pos"), step: true, width: 1.5 }]; },
+  }));
+  charts.push(new Chart($("cPnl"), {
+    zero: true,
+    yFmt: (v, step) => { const r = state.current; return unitOf(r) === "$" ? "$" + nf0.format(v * r.summary.tick_value) : nf0.format(v); },
+    layers: () => {
+      const colors = compareColors();
+      const others = [...state.compare].filter(id => id !== state.current.id).map(id => state.cache.get(id)).filter(Boolean);
+      const L = others.map(r => ({ t: r.series.time, v: r.series.pnl, color: colors.get(r.id), width: 1.3 }));
+      const s = seriesFor(state.current);
+      L.push({ t: s.time, v: s.pnl, color: colors.get(state.current.id) || css("--pnl"), width: 2 });
+      return L;
+    },
+  }));
+}
+function redrawAll() {
+  if (!state.current) return;
+  const colors = compareColors();
+  const ids = state.compare.size ? [...state.compare] : [state.current.id];
+  if (!ids.includes(state.current.id)) ids.push(state.current.id);
+  $("pnlLegend").innerHTML = ids.map(id => state.cache.get(id)).filter(Boolean).map(r =>
+    `<span style="--c:${colors.get(r.id) || css("--pnl")}">${r.id === state.current.id ? "<b>this run</b>" : runSub(r)}</span>`).join("");
+  for (const c of charts) c.draw();
+  drawOverlays();
+  renderFills();
+}
+function drawOverlays() { for (const c of charts) c.overlay(); }
+
+function hover(e, chart) {
+  drawOverlays();
+  const r = state.current, s = seriesFor(r), t = state.hoverT, tip = $("tip");
+  if (t == null || chart.drag) { tip.style.display = "none"; return; }
+  let i = lowerBound(s.time, t);
+  if (i >= s.time.length || (i > 0 && t - s.time[i - 1] < s.time[i] - t)) i = Math.max(0, i - 1);
+  const row = (k, v) => `<div class="row"><span>${k}</span><span>${v}</span></div>`;
+  let html = `<b>${fmtTime(s.time[i], true)}</b>` +
+    row("bid / ask", `${price(r, s.bid[i])} / ${price(r, s.ask[i])}`) +
+    row("size", `${s.bid_qty[i] ?? "–"} / ${s.ask_qty[i] ?? "–"}`) +
+    row("our bid / ask", `${price(r, s.our_bid[i])} / ${price(r, s.our_ask[i])}`) +
+    row("position", nf0.format(s.position[i])) + row("PnL", money(r, s.pnl[i]));
+  // the nearest fill within 6 px
+  const f = r.fills, tol = 6 * (chart.xr[1] - chart.xr[0]) / (chart.w - chart.pad.l - chart.pad.r);
+  const j = lowerBound(f.time, t - tol);
+  if (j < f.time.length && f.time[j] <= t + tol) {
+    html += `<div style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px"><b style="color:var(--${f.side[j]})">${f.side[j] === "buy" ? "Bought" : "Sold"} ${f.quantity[j]} @ ${price(r, f.price[j])}</b>` +
+      row("as", f.maker[j] ? "maker" : "taker") + row("at", fmtTime(f.time[j], true)) + `</div>`;
+  }
+  tip.innerHTML = html;
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > window.innerHeight - 8) y = e.clientY - h - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+
+$("resetZoom").onclick = () => zoomTo(null);
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 80); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawAll);
+
+makeCharts();
+init().catch(err => { $("formError").textContent = "Cannot reach the server: " + err.message; });
+</script>
+</body>
+</html>

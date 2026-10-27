@@ -28,3 +28,6 @@ BACKTESTER_PLAN.md
 # LOBSTER and other market data (large, downloaded separately)
 data/
 LOBSTER_SampleFile_*.zip
+
+# Backtest viewer runs (ui/server.py)
+backtest_out/
