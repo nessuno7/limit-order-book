@@ -386,6 +386,15 @@ namespace fast {
             else asks.forEach(visit);
         }
 
+        // Visits the orders resting at one price, FIFO: f(id, quantity).
+        template<class F>
+        void forEachOrderAt(const Side side, const Price price, F &&f) const {
+            if (price < lo || price > hi) return;
+            const Level *level = side == Side::BUY ? bids.find(price) : asks.find(price);
+            if (level == nullptr) return;
+            for (Slot s = level->head; s != NIL; s = pool[s].next) f(pool[s].id, pool[s].quantity);
+        }
+
         // ── passive mode: rebuilding a book from an exchange feed ────────────
         //
         // A feed reports what the exchange already did, so these never match:

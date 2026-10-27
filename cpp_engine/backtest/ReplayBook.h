@@ -147,13 +147,14 @@ namespace bt {
             book.restPassive(id, side, price, total);
         }
 
-        // Tracked orders at one level, front of the queue first.
-        std::vector<std::pair<OrderId, Quantity>> trackedAt(const Side side, const Price p) const {
-            std::vector<std::pair<OrderId, Quantity>> r;
-            book.forEachOrder(side, [&](const Price price, const OrderId id, const Quantity q) {
-                if (price == p && !isPlaceholder(id)) r.emplace_back(id, q);
+        // Tracked orders at one level, front of the queue first. The result
+        // lives in a reused buffer, valid until the next call.
+        const std::vector<std::pair<OrderId, Quantity>> &trackedAt(const Side side, const Price p) {
+            tracked.clear();
+            book.forEachOrderAt(side, p, [&](const OrderId id, const Quantity q) {
+                if (!isPlaceholder(id)) tracked.emplace_back(id, q);
             });
-            return r;
+            return tracked;
         }
 
         void fold(const Side side, const Price p) {
@@ -182,7 +183,7 @@ namespace bt {
 
             // Our levels inside the view that the snapshot does not show are empty.
             std::size_t changed = 0;
-            std::vector<std::pair<Price, Quantity>> ours;
+            ours.clear();
             book.forEachLevel(side, [&](const Price p, const Quantity q) {
                 if (full && worse(side, p, levels.back().first)) return false;
                 if (!full && depth == 0 && !levels.empty() && worse(side, p, levels.back().first)) return false;
@@ -228,6 +229,8 @@ namespace bt {
         std::map<Key, OrderId> placeholders;
         OrderId nextPlaceholder = 0;
         Levels lastBids, lastAsks; // the previous snapshot, to see levels leave view
+        Levels ours;               // scratch for resyncSide, kept to avoid allocating per snapshot
+        std::vector<std::pair<OrderId, Quantity>> tracked; // scratch for trackedAt
         ReplayStats stats_;
     };
 }
