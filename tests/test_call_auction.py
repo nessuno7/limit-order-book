@@ -1,20 +1,20 @@
-from uuid import uuid4
 from python_engine.call_auction.call_auction import CallAuction
+from python_engine.call_auction.pricing_rule import PricingRule
 from python_engine.orderbook.order import Order, Side, Trade
 
-TRADER = uuid4()
+TRADER = 1
 
 
 def lmt(side, price, qty):
     return Order(side=side, price=price, quantity=qty, trader_id=TRADER)
 
 
-class _NoopPricing:
+class _NoopPricing(PricingRule):
     def clear(self, buys, sells):
         return [], []
 
 
-class _CapturePricing:
+class _CapturePricing(PricingRule):
     def __init__(self):
         self.calls = []
 
@@ -61,9 +61,9 @@ class TestRun:
         assert b in buys and s in sells
 
     def test_run_returns_trades_from_pricing(self):
-        dummy = Trade(price=100, quantity=5, buy_order_id=uuid4(), sell_order_id=uuid4())
+        dummy = Trade(price=100, quantity=5, buy_order_id=1, sell_order_id=2)
 
-        class _FixedPricing:
+        class _FixedPricing(PricingRule):
             def clear(self, buys, sells):
                 return [dummy], []
 

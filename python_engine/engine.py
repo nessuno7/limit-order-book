@@ -18,22 +18,15 @@ purpose — this is your project to build.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from .orderbook.orderbook import OrderBook
 from .orderbook.order import Trade, Order
 
 class MatchingEngine(ABC):
-    def __init__(self) -> None:
-        self.book = OrderBook("TEST")
+    def __init__(self, instrument: str = "TEST") -> None:
+        self.book = OrderBook(instrument)
         self.trades: list[Trade] = []
 
     @abstractmethod
     def submit(self, order: Order) -> list[Trade]:
         """Accept one order; return the trades it generated (maybe empty)."""
         ...
-
-
-
-if __name__ == "__main__":
-    # Usage sketch — same interface, three markets:
-    ...

@@ -1,0 +1,63 @@
+{
+  "params": {
+    "seed": 42,
+    "n_orders": 10000,
+    "buy_price_range": [80, 99],
+    "sell_price_range": [101, 120],
+    "match_price": 100,
+    "qty_range": [1, 20],
+    "n_warmup": 200
+  },
+  "results": [
+    {
+      "workload": "insert_no_match",
+      "n": 20000,
+      "mean_us": 0.107,
+      "p50_us": 0.100,
+      "p95_us": 0.100,
+      "p99_us": 0.200,
+      "max_us": 70.600,
+      "throughput_kops_per_sec": 9387.0
+    },
+    {
+      "workload": "submit_match_1v1",
+      "n": 10000,
+      "mean_us": 0.252,
+      "p50_us": 0.200,
+      "p95_us": 0.300,
+      "p99_us": 0.400,
+      "max_us": 121.800,
+      "throughput_kops_per_sec": 3965.6
+    },
+    {
+      "workload": "submit_sweep",
+      "n": 20,
+      "mean_us": 7.775,
+      "p50_us": 7.800,
+      "p95_us": 7.900,
+      "p99_us": 7.900,
+      "max_us": 7.900,
+      "throughput_kops_per_sec": 128.6
+    },
+    {
+      "workload": "cancel",
+      "n": 10000,
+      "mean_us": 0.353,
+      "p50_us": 0.300,
+      "p95_us": 0.500,
+      "p99_us": 0.700,
+      "max_us": 78.100,
+      "throughput_kops_per_sec": 2830.5
+    },
+    {
+      "workload": "best_price",
+      "n": 10000,
+      "mean_us": 0.037,
+      "p50_us": 0.000,
+      "p95_us": 0.100,
+      "p99_us": 0.100,
+      "max_us": 12.200,
+      "throughput_kops_per_sec": 26917.9
+    }
+  ]
+}

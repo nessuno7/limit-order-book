@@ -1,0 +1,8 @@
+fuzzing against ReferenceBook: 6 seed(s) from 1 x 2000000 ops, full-book check every 1000 ops
+engine (std::map)             ok  12000000 ops (6425513 adds, 3015700 cancels, 2558787 modifies), 1845780 fills identical, 503754 rejections, 853061 FOKs killed, 12006 full-book checks, max depth 5001, 17.1 s
+MapBook (std::map + pool)     ok  12000000 ops (6425513 adds, 3015700 cancels, 2558787 modifies), 1845780 fills identical, 503754 rejections, 853061 FOKs killed, 12006 full-book checks, max depth 5001, 15.4 s
+FastBook (flat array)         ok  12000000 ops (6425513 adds, 3015700 cancels, 2558787 modifies), 1845780 fills identical, 503754 rejections, 853061 FOKs killed, 12006 full-book checks, max depth 5001, 14.7 s
+
+real	0m47.196s
+user	0m0.000s
+sys	0m0.031s

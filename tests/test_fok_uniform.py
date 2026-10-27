@@ -1,5 +1,5 @@
 """
-FOK tests for the Uniform call-auction pricing rule (old_uniform.py).
+FOK tests for the Uniform call-auction pricing rule.
 
 All-or-nothing semantics in a call auction:
   - A FOK that cannot fill at any candidate price level is cancelled (not in unfilled)
@@ -7,21 +7,13 @@ All-or-nothing semantics in a call auction:
   - The presence of a FOK can change which price level wins (a level where the
     FOK cannot fill records zero volume from it)
   - Opposing FOKs walk each other recursively; if neither can fill, both drop
-
-NOTE: tests marked with (*) will fail until the no-trade return path on
-line 175 of old_uniform.py is fixed:
-    if not level_volume:
-        return [], []           # current — drops all GTC orders
-        # should be:
-        return [], [o for o in buys + sells if o.tif is TimeInForce.GTC]
 """
 from datetime import datetime, timedelta
-from uuid import uuid4
 
-from python_engine.call_auction.rules.old_uniform import Uniform
+from python_engine.call_auction.rules.uniform import Uniform
 from python_engine.orderbook.order import Order, Side, TimeInForce
 
-TRADER = uuid4()
+TRADER = 1
 T0 = datetime(2026, 1, 1, 9, 0, 0)
 
 
@@ -62,8 +54,6 @@ class TestFOKBasic:
         _, unfilled = Uniform().clear([b], [s])
         assert not any(o.order_id == b.order_id for o in unfilled)
 
-    # (*) these fail until line 175 returns GTC leftovers instead of [], []
-
     def test_fok_buy_fails_gtc_sell_preserved(self):
         # FOK needs 100, only 50 available → no trades; GTC sell should roll forward
         b = fok(Side.BUY, 105, 100)
@@ -71,7 +61,7 @@ class TestFOKBasic:
         trades, unfilled = Uniform().clear([b], [s])
         assert trades == []
         assert not any(o.order_id == b.order_id for o in unfilled)
-        assert any(o.order_id == s.order_id for o in unfilled)  # (*) fails
+        assert any(o.order_id == s.order_id for o in unfilled)
 
     def test_fok_sell_fails_gtc_buy_preserved(self):
         b = gtc(Side.BUY, 105, 50)
@@ -79,7 +69,7 @@ class TestFOKBasic:
         trades, unfilled = Uniform().clear([b], [s])
         assert trades == []
         assert not any(o.order_id == s.order_id for o in unfilled)
-        assert any(o.order_id == b.order_id for o in unfilled)  # (*) fails
+        assert any(o.order_id == b.order_id for o in unfilled)
 
     def test_fok_fills_across_multiple_opposing_orders(self):
         # FOK needs 100; two sells of 60 each → cumulative 120 ≥ 100 → fills
@@ -101,8 +91,8 @@ class TestFOKBasic:
         trades, unfilled = Uniform().clear([b], [s1, s2])
         assert trades == []
         assert not any(o.order_id == b.order_id for o in unfilled)
-        assert any(o.order_id == s1.order_id for o in unfilled)  # (*) fails
-        assert any(o.order_id == s2.order_id for o in unfilled)  # (*) fails
+        assert any(o.order_id == s1.order_id for o in unfilled)
+        assert any(o.order_id == s2.order_id for o in unfilled)
 
 
 class TestFOKAndGTC:

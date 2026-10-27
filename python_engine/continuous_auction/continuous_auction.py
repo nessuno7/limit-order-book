@@ -1,6 +1,7 @@
 from ..engine import MatchingEngine
+from datetime import datetime
+
 from ..orderbook.order import Trade, Order, Side, TimeInForce
-from uuid import UUID
 
 class ContinuousDoubleAuction(MatchingEngine):
     """
@@ -33,21 +34,22 @@ class ContinuousDoubleAuction(MatchingEngine):
         if ctr.quantity == 0: # if sell order has been exhausted then cancel it
             self.book.cancel(ctr.order_id)
 
-        return not order.quantity == 0 # order has now been satisfied
+        return order.quantity != 0 # False once the order has been satisfied
 
     def _fok_walk(self, order:Order) -> bool:
         filled_qty = 0
+        # a market FOK has no limit: every resting order on the other side counts
         if order.side is Side.BUY:
-            for price, queue in sorted(self.book.asks.items()):# sorted in ascending order
-                if price > order.price:
+            for price, queue in self.book.asks.items(): # SortedDict: already ascending
+                if order.price is not None and price > order.price:
                     break
                 for uid in queue:
                     filled_qty += self.book._index[uid].quantity
                     if filled_qty >= order.quantity:
                         return True
         else: # SELL
-            for price, queue in sorted(self.book.bids.items(), reverse=True): # sorted in descending order (you want the freater bid)
-                if price < order.price:
+            for price, queue in reversed(self.book.bids.items()): # descending (you want the greater bid)
+                if order.price is not None and price < order.price:
                     break
                 for uid in queue:
                     filled_qty += self.book._index[uid].quantity
@@ -55,13 +57,22 @@ class ContinuousDoubleAuction(MatchingEngine):
                         return True
         return False
 
+    def _rest(self, order: Order) -> None:
+        # Only a GTC limit order rests. A market order has no price level to
+        # rest on, so its unfilled remainder is cancelled like an IOC's.
+        if order.tif is TimeInForce.GTC and order.price is not None:
+            self.book.add(order=order)
+
     def submit(self, order: Order) -> list[Trade]: # for now assumes that the order is marketable
+        if order.order_id in self.book._index:
+            raise ValueError(f"order {order.order_id} is already resting in the book")
+        if order.quantity <= 0: # e.g. resubmitting an order that already filled
+            raise ValueError(f"order {order.order_id} has no quantity left to fill")
         trades: list[Trade] = []
         # precedence of order is given by 
         market_continue = order.price is None
         limit_continue = not market_continue
 
-        # TODO: implement FOK
         if order.tif is TimeInForce.FOK:
             if not self._fok_walk(order=order):
                 return [] # fok gets cancelled (not appended to )
@@ -72,8 +83,7 @@ class ContinuousDoubleAuction(MatchingEngine):
                 sell_ctr = self.book._index.get(sell_id, None) # pull the sell contract, if no id matching then get none (happens when best_sell is None)
 
                 if best_sell is None: # if there is no seller, then put order in the book
-                    if order.tif is TimeInForce.GTC:
-                        self.book.add(order=order)
+                    self._rest(order)
                     break
                 elif order.price is None: # use the best market price, else you must meet the order.price ask/bid
                     market_continue = self._gtc_helper(
@@ -90,8 +100,7 @@ class ContinuousDoubleAuction(MatchingEngine):
                         trades=trades
                     )
                 else: # limit order and best_sell > order.price
-                    if order.tif is TimeInForce.GTC:
-                        self.book.add(order=order) # append the buy contract to the orderbook buy side
+                    self._rest(order) # append the buy contract to the orderbook buy side
                     # if order is IOC or FOK pass
                     break
 
@@ -101,8 +110,7 @@ class ContinuousDoubleAuction(MatchingEngine):
                 buy_ctr = self.book._index.get(buy_id, None) # pull the sell contract, if no id matching then get none (happens when best_sell is None)
 
                 if best_buy is None: # if there is no seller, then put order in the book
-                    if order.tif is TimeInForce.GTC:
-                        self.book.add(order=order)
+                    self._rest(order)
                     break
                 elif order.price is None: # use the best market price, else you must meet the order.price ask/bid
                     market_continue = self._gtc_helper(
@@ -119,10 +127,31 @@ class ContinuousDoubleAuction(MatchingEngine):
                         trades=trades
                     )
                 else: # limit order and best_buy > order.price
-                    if order.tif is TimeInForce.GTC:
-                        self.book.add(order=order) # append the buy contract to the orderbook buy side
+                    self._rest(order) # append the sell contract to the orderbook sell side
                     # if the order is FOK or IOC, no add remaining qty to book
                     break
 
         self.trades.extend(trades)
         return trades
+
+    def modify(self, order_id: int, new_price: int, new_quantity: int,
+               timestamp: datetime | None = None) -> list[Trade]:
+        """Amend a resting order.
+
+        Shrinking it at the same price keeps its place in the queue. Any other
+        change (a new price, or more quantity) loses time priority: the order
+        leaves the book and is submitted again, so a new price that crosses
+        trades immediately. KeyError if the id is not resting, ValueError if
+        new_quantity is not positive.
+        """
+        order = self.book._index[order_id] # KeyError if not resting
+        if new_quantity <= 0:
+            raise ValueError(f"modify needs a positive quantity, got {new_quantity}; use cancel to remove an order")
+        if new_price == order.price and new_quantity <= order.quantity:
+            order.quantity = new_quantity # a reduction keeps priority
+            return []
+        self.book.cancel(order_id)
+        order.price = new_price
+        order.quantity = new_quantity
+        order.renew(timestamp)
+        return self.submit(order)

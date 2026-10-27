@@ -1,0 +1,156 @@
+{
+  "machine": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "processor": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "python": "3.10.22"
+  },
+  "workloads": {
+    "continuous": {
+      "kind": "continuous",
+      "rule": "",
+      "n_events": 100000
+    },
+    "uniform": {
+      "kind": "call",
+      "rule": "uniform",
+      "n_batches": 100,
+      "batch_size": 200,
+      "market": 0.05
+    },
+    "discriminatory": {
+      "kind": "call",
+      "rule": "discriminatory",
+      "n_batches": 100,
+      "batch_size": 200,
+      "market": 0.0
+    }
+  },
+  "results": [
+    {
+      "scenario": "continuous",
+      "identical": true,
+      "python": {
+        "language": "python",
+        "scenario": "continuous",
+        "events": 100000,
+        "orders": 84894,
+        "trades": 56445,
+        "volume": 1437164,
+        "notional": 14355724752,
+        "trade_digest": "c3172a05095c252c",
+        "state_digest": "91737da731fa4a90",
+        "reps": 3,
+        "time_s_median": 0.6757179999840446,
+        "time_s_min": 0.675593599997228,
+        "events_per_sec": 147990.72986417596,
+        "ns_per_event": 6757.179999840446,
+        "rss_baseline_bytes": 42713088,
+        "rss_peak_bytes": 80601088,
+        "heap_peak_bytes": 21177867
+      },
+      "cpp": {
+        "language": "cpp",
+        "scenario": "continuous",
+        "events": 100000,
+        "orders": 84894,
+        "trades": 56445,
+        "volume": 1437164,
+        "notional": 14355724752,
+        "trade_digest": "c3172a05095c252c",
+        "state_digest": "91737da731fa4a90",
+        "reps": 10,
+        "time_s_median": 0.0227005,
+        "time_s_min": 0.0221834,
+        "events_per_sec": 4405189.31,
+        "ns_per_event": 227.005,
+        "heap_peak_bytes": 11729176,
+        "rss_baseline_bytes": 11694080,
+        "rss_peak_bytes": 30773248
+      }
+    },
+    {
+      "scenario": "uniform",
+      "identical": true,
+      "python": {
+        "language": "python",
+        "scenario": "uniform",
+        "events": 20100,
+        "orders": 20000,
+        "trades": 9249,
+        "volume": 237783,
+        "notional": 2377011106,
+        "trade_digest": "65e298df9482e577",
+        "state_digest": "21d9a0346fe0d0be",
+        "reps": 3,
+        "time_s_median": 10.578756300004898,
+        "time_s_min": 10.012578800000483,
+        "events_per_sec": 1900.034316887581,
+        "ns_per_event": 526306.2835823332,
+        "rss_baseline_bytes": 25747456,
+        "rss_peak_bytes": 43782144,
+        "heap_peak_bytes": 15242115
+      },
+      "cpp": {
+        "language": "cpp",
+        "scenario": "uniform",
+        "events": 20100,
+        "orders": 20000,
+        "trades": 9249,
+        "volume": 237783,
+        "notional": 2377011106,
+        "trade_digest": "65e298df9482e577",
+        "state_digest": "21d9a0346fe0d0be",
+        "reps": 10,
+        "time_s_median": 0.4447823,
+        "time_s_min": 0.4247834,
+        "events_per_sec": 45190.6472,
+        "ns_per_event": 22128.4726,
+        "heap_peak_bytes": 11346936,
+        "rss_baseline_bytes": 6565888,
+        "rss_peak_bytes": 22413312
+      }
+    },
+    {
+      "scenario": "discriminatory",
+      "identical": true,
+      "python": {
+        "language": "python",
+        "scenario": "discriminatory",
+        "events": 20100,
+        "orders": 20000,
+        "trades": 8862,
+        "volume": 225746,
+        "notional": 2257130401,
+        "trade_digest": "6b670e8518e9d288",
+        "state_digest": "0b885b0e26ea674d",
+        "reps": 3,
+        "time_s_median": 0.7577158999920357,
+        "time_s_min": 0.7548715999873821,
+        "events_per_sec": 26527.0928064348,
+        "ns_per_event": 37697.30845731521,
+        "rss_baseline_bytes": 26128384,
+        "rss_peak_bytes": 36773888,
+        "heap_peak_bytes": 5773046
+      },
+      "cpp": {
+        "language": "cpp",
+        "scenario": "discriminatory",
+        "events": 20100,
+        "orders": 20000,
+        "trades": 8862,
+        "volume": 225746,
+        "notional": 2257130401,
+        "trade_digest": "6b670e8518e9d288",
+        "state_digest": "0b885b0e26ea674d",
+        "reps": 10,
+        "time_s_median": 0.0443432,
+        "time_s_min": 0.0423051,
+        "events_per_sec": 453282.578,
+        "ns_per_event": 2206.12935,
+        "heap_peak_bytes": 2805408,
+        "rss_baseline_bytes": 5795840,
+        "rss_peak_bytes": 12845056
+      }
+    }
+  ]
+}

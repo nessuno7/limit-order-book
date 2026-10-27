@@ -9,12 +9,11 @@ The key properties under test:
   - GTC leftovers roll to unfilled; IOC leftovers are dropped
 """
 from datetime import datetime, timedelta
-from uuid import uuid4
 
 from python_engine.call_auction.rules.uniform import Uniform
 from python_engine.orderbook.order import Order, Side, TimeInForce
 
-TRADER = uuid4()
+TRADER = 1
 T0 = datetime(2026, 1, 1, 9, 0, 0)
 
 

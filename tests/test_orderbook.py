@@ -1,9 +1,8 @@
-from uuid import uuid4
 import pytest
 from python_engine.orderbook.orderbook import OrderBook
 from python_engine.orderbook.order import Order, Side
 
-TRADER = uuid4()
+TRADER = 1
 
 
 def lmt(side, price, qty):

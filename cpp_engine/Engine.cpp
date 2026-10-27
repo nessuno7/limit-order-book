@@ -1,5 +1,7 @@
 //
-// Created by Nicola on 09/09/2026.
+// Port of python_engine/engine.py
 //
 
 #include "Engine.h"
+
+MatchingEngine::MatchingEngine() : book("TEST") {}

@@ -1,21 +1,11 @@
 """
 Tests for ContinuousDoubleAuction.
-
-NOTE: several tests here will HANG (infinite loop) until the gtc_helper bug is
-fixed. The bug: gtc_helper returns `order.quantity == 0` (True when done), but
-the while loop is `while limit_continue`, so a fully-filled order loops forever.
-Fix: change `return order.quantity == 0` to `return order.quantity > 0` in
-continuous_auction.py.
-
-Tests that require the fix:  TestExactMatch, TestPartialFill, TestMultiLevelSweep,
-TestMarketOrders (multi-level), TestTradeAccumulation.
 """
-from uuid import uuid4
 import pytest
 from python_engine.continuous_auction.continuous_auction import ContinuousDoubleAuction
 from python_engine.orderbook.order import Order, Side
 
-TRADER = uuid4()
+TRADER = 1
 
 
 def lmt(side, price, qty):
@@ -55,8 +45,6 @@ class TestNoMatch:
 
 
 class TestExactMatch:
-    # These tests require the gtc_helper fix (see module docstring).
-
     def test_exact_qty_and_price(self):
         e = ContinuousDoubleAuction()
         e.submit(lmt(Side.SELL, 100, 10))
@@ -81,8 +69,6 @@ class TestExactMatch:
 
 
 class TestPartialFill:
-    # These tests require the gtc_helper fix (see module docstring).
-
     def test_aggressor_smaller_resting_has_remainder(self):
         e = ContinuousDoubleAuction()
         e.submit(lmt(Side.SELL, 100, 10))
@@ -132,8 +118,6 @@ class TestFIFO:
 
 
 class TestMultiLevelSweep:
-    # These tests require the gtc_helper fix (see module docstring).
-
     def test_buy_sweeps_two_ask_levels(self):
         e = ContinuousDoubleAuction()
         e.submit(lmt(Side.SELL, 100, 5))

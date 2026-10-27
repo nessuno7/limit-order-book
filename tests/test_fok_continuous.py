@@ -5,11 +5,10 @@ The key invariant: FOK orders NEVER rest in the book. They either fill
 completely in the same submit() call or are cancelled (return []). This
 is what prevents the chained-FOK edge case that can occur in call auctions.
 """
-from uuid import uuid4
 from python_engine.continuous_auction.continuous_auction import ContinuousDoubleAuction
 from python_engine.orderbook.order import Order, Side, TimeInForce
 
-TRADER = uuid4()
+TRADER = 1
 
 
 def gtc(side, price, qty):

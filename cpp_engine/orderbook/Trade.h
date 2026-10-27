@@ -1,34 +1,32 @@
 //
-// Created by Nicola on 09/09/2026.
+// Port of the Trade dataclass in python_engine/orderbook/order.py
 //
 
 #ifndef LIMIT_ORDER_BOOK_TRADE_H
 #define LIMIT_ORDER_BOOK_TRADE_H
 
-#include <chrono>
+#include "Types.h"
 
-using Datetime = std::chrono::time_point<std::chrono::system_clock>;
+#include <optional>
 
-class Trade {
-    uint64_t price;
-    uint64_t quantity;
-    uint64_t buyOrderId;
-    uint64_t sellOrderId;
+struct Trade {
+    Price price;
+    Quantity quantity;
+    OrderId buyOrderId;
+    OrderId sellOrderId;
     Datetime timestamp;
 
-public:
-    Trade(uint64_t p, q, bId, sID): price(p), quantity(q), buyOrderId(sID), sellOrderId(bId) {
-        timestamp = std::chrono::system_clock::now();
-    }
+    Trade(Price price_,
+          Quantity quantity_,
+          OrderId buyOrderId_,
+          OrderId sellOrderId_,
+          std::optional<Datetime> timestamp_ = std::nullopt);
 
-    uint64_t getPrice(){return price;};
-    uint64_t getQuantity(){return quantity;};
-    uint64_t getBuyOrderId(){return buyOrderId;};
-    uint64_t getSellOrderId(){return sellOrderId;};
-    uint64_t getTimestamp(){return timestamp;};
-
-
+    [[nodiscard]] Price getPrice() const { return price; }
+    [[nodiscard]] Quantity getQuantity() const { return quantity; }
+    [[nodiscard]] OrderId getBuyOrderId() const { return buyOrderId; }
+    [[nodiscard]] OrderId getSellOrderId() const { return sellOrderId; }
+    [[nodiscard]] Datetime getTimestamp() const { return timestamp; }
 };
-
 
 #endif //LIMIT_ORDER_BOOK_TRADE_H

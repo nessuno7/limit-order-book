@@ -20,7 +20,6 @@ import statistics
 import time
 import tracemalloc
 from pathlib import Path
-from uuid import uuid4
 
 from python_engine.continuous_auction.continuous_auction import ContinuousDoubleAuction
 from python_engine.orderbook.order import Order, Side
@@ -37,7 +36,7 @@ PARAMS = {
     "n_warmup": 200,           # iterations discarded before timing starts
 }
 
-TRADER = uuid4()
+TRADER = 1
 RNG = random.Random(PARAMS["seed"])
 
 

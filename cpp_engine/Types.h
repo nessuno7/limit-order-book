@@ -15,8 +15,11 @@
 // has no epoch you can print.
 using Datetime = std::chrono::system_clock::time_point;
 
+// Signed on purpose. The algorithms do `order.quantity -= n` and test against
+// 0, and Python ints do not wrap. Unsigned would turn an over-subtraction into
+// a huge positive number instead of a visible negative one.
 using Price    = std::int64_t;   // integer ticks, never a float
-using Quantity = std::uint64_t;
+using Quantity = std::int64_t;
 using OrderId  = std::uint64_t;
 using TraderId = std::uint64_t;
 
