@@ -148,6 +148,12 @@ namespace bt {
         [[nodiscard]] const fast::FastBook &fastBook() const { return book; }
         [[nodiscard]] const ReplayStats &stats() const { return stats_; }
 
+        // Tracked orders a re-sync took off the book (folded into a
+        // placeholder, or trimmed to nothing) since the last clearDropped().
+        // The feed never reports their removal.
+        [[nodiscard]] std::span<const OrderId> dropped() const { return dropped_; }
+        void clearDropped() { dropped_.clear(); }
+
     private:
         using Key = std::pair<Side, Price>;
         using Levels = std::vector<std::pair<Price, Quantity>>;
@@ -200,6 +206,7 @@ namespace bt {
             Quantity total = 0;
             for (const auto &[id, q]: trackedAt(side, p)) {
                 book.cancel(id);
+                dropped_.push_back(id);
                 total += q;
                 ++stats_.foldedOrders;
             }
@@ -254,6 +261,7 @@ namespace bt {
                     if (excess == 0) break;
                     const Quantity take = std::min(excess, q);
                     book.reduce(id, take);
+                    if (take == q) dropped_.push_back(id);
                     excess -= take;
                     stats_.droppedKnown += take;
                 }
@@ -269,6 +277,7 @@ namespace bt {
         std::map<Key, OrderId> placeholders;
         OrderId nextPlaceholder = 0;
         Levels lastBids, lastAsks; // the previous snapshot, to see levels leave view
+        std::vector<OrderId> dropped_;
         Levels ours;               // scratch for resyncSide, kept to avoid allocating per snapshot
         std::vector<std::pair<OrderId, Quantity>> tracked; // scratch for trackedAt
         std::vector<Correction> *recording = nullptr;       // set during a recorded resyncTo()

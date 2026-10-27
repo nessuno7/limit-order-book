@@ -246,6 +246,7 @@ namespace bt {
             fillAgainst(e);
             applyToBook(e);
             resync();
+            if (!book.dropped().empty()) retireDropped();
             updateMid();
             settleMarkouts(false);
             dispatchFills();
@@ -296,8 +297,24 @@ namespace bt {
             return r;
         }
 
+        // 0: resting before the feed began, ahead of everyone.
         [[nodiscard]] std::uint64_t seqOf(const OrderId id) const {
-            return arrival.get(id, 0); // 0: resting before the feed began, ahead of everyone
+            const std::uint64_t s = arrival.get(id, 0);
+            return s != 0 ? s : departed.get(id, 0);
+        }
+
+        // Orders a re-sync removed keep their arrival number, as later
+        // messages may still name them, but move out of the map every add
+        // and delete touches, which then holds only resting orders and stays
+        // in cache.
+        void retireDropped() {
+            for (const OrderId id: book.dropped()) {
+                if (const std::uint64_t s = arrival.get(id, 0); s != 0) {
+                    departed.set(id, s);
+                    arrival.erase(id);
+                }
+            }
+            book.clearDropped();
         }
 
         // Whether any live order on `side` satisfies `p`. Most messages are
@@ -373,7 +390,10 @@ namespace bt {
                 ++stats_.unknownOrders;
                 return;
             }
-            if (e.type == EventType::Add) arrival.set(e.id, ++seqCounter);
+            if (e.type == EventType::Add) {
+                arrival.set(e.id, ++seqCounter);
+                if (departed.size() > 0) departed.erase(e.id); // a reused id starts afresh
+            }
             else if (!book.fastBook().contains(e.id)) arrival.erase(e.id);
         }
 
@@ -427,7 +447,8 @@ namespace bt {
         Config cfg;
         Strategy &strat;
         ReplayBook book;
-        IdMap<std::uint64_t> arrival; // historical order -> arrival number
+        IdMap<std::uint64_t> arrival;  // resting historical order -> arrival number
+        IdMap<std::uint64_t> departed; // the same, for orders a re-sync removed
         std::uint64_t seqCounter = 0;
         std::vector<SimOrder> orders; // open orders, sorted by id
         std::vector<SimOrder *> liveScratch;
