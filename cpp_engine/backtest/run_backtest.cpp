@@ -5,7 +5,7 @@
 //   lob_backtest [--seed N] [--ops N] [--profile tight|deep|volatile]
 //                [--lobster MESSAGE_FILE --lobster-book ORDERBOOK_FILE [--price-divisor D]
 //                 [--resync cache|memory|online]]
-//                [--latency-us N] [--size N] [--max-position N] [--horizon-ms N]
+//                [--latency-us N] [--md-latency-us N] [--size N] [--max-position N] [--horizon-ms N]
 //                [--maker-fee F] [--taker-fee F] [--repeat N]
 //
 // --repeat N replays N times and reports the fastest (the results are the
@@ -70,6 +70,7 @@ int main(const int argc, char **argv) {
         else if (a == "--price-divisor") priceDivisor = std::stoll(v);
         else if (a == "--resync") resync = v;
         else if (a == "--latency-us") cfg.orderLatency = std::stoll(v) * 1'000;
+        else if (a == "--md-latency-us") cfg.mdLatency = std::stoll(v) * 1'000;
         else if (a == "--horizon-ms") cfg.markoutHorizon = std::stoll(v) * 1'000'000;
         else if (a == "--size") size = std::stoll(v);
         else if (a == "--max-position") maxPosition = std::stoll(v);
@@ -147,9 +148,9 @@ int main(const int argc, char **argv) {
     const bt::Backtester &backtest = *run;
 
     const bt::Stats &s = backtest.stats();
-    std::printf("strategy: QuoteAtTouch size %lld, max position %lld, latency %lld us\n",
+    std::printf("strategy: QuoteAtTouch size %lld, max position %lld, latency %lld us order entry + %lld us market data\n",
                 static_cast<long long>(size), static_cast<long long>(maxPosition),
-                static_cast<long long>(cfg.orderLatency / 1'000));
+                static_cast<long long>(cfg.orderLatency / 1'000), static_cast<long long>(cfg.mdLatency / 1'000));
     std::printf("replay:   %.3f s, %.2f M messages/s, %llu messages on orders the feed never added\n", secs,
                 static_cast<double>(s.events) / secs / 1e6, static_cast<unsigned long long>(s.unknownOrders));
     std::printf("fills:    %llu (maker %lld, taker %lld shares; bought %lld, sold %lld)\n",

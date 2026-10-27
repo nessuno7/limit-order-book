@@ -204,8 +204,36 @@ Next, roughly in order:
    about 14 M/s. `--resync online` and `--resync memory` remain for checking.
    Tried and dropped: identity hashing of ids (+3%, inside the noise) and a
    single-lookup reduce (no gain).
-2. **Market-data latency.** The strategy should see the book as it was
-   `mdLatency` ago, not as it is now.
+2. ~~**Market-data latency.**~~ Done. As in hftbacktest, latency has two
+   legs: order entry (`--latency-us`) and market data (`--md-latency-us`).
+   With `mdLatency > 0` everything the exchange sends, book messages, fills
+   and acknowledgements, reaches the strategy that much later. The strategy
+   reads a second `ReplayBook` that lags the exchange's, and sees its own
+   orders and position as the reports so far describe them. So it can quote
+   off a stale touch, or cancel an order that has already filled. Actions
+   sent during a delivery reach the exchange in time order with the other
+   deliveries. Tests check that the strategy sees exactly the book sequence
+   it would see without latency, shifted by `mdLatency`, through LOBSTER
+   re-syncs too.
+
+   QuoteAtTouch on the 10-level AMZN day:
+
+   | order entry | market data | fills | taker shares | PnL, ticks | markout, ticks/share |
+   |---|---|---|---|---|---|
+   | 100 µs | 0 | 1,158 | 10 | 18,264 | +1.09 |
+   | 50 µs | 50 µs | 1,158 | 10 | 18,264 | +1.09 |
+   | 100 µs | 100 µs | 1,104 | 70 | 14,732 | +1.00 |
+   | 100 µs | 1 ms | 1,168 | 250 | 6,878 | +0.56 |
+   | 100 µs | 10 ms | 1,333 | 494 | 17,205 | −0.06 |
+
+   Splitting a 100 µs round trip between the two legs changes nothing for
+   this strategy. A slower feed turns quotes into crossing orders (taker
+   volume rises), and by 10 ms the markout is gone. The PnL column moves
+   with the end-of-day position more than with skill.
+   Cost: with `mdLatency = 0` no second book is kept, and the replay speed
+   is unchanged within noise (the view is chosen once; a branch on every
+   accessor call cost 4%). With it, the replay runs at about 5.5 M msg/s,
+   since every message is applied to two books.
 3. **A market-impact option.** Let our fills consume the aggressor's volume:
    group a burst of executions with the same timestamp into one aggressor,
    fill us from it, and shrink what reaches the historical orders behind us.

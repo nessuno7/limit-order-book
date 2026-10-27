@@ -30,9 +30,19 @@
 //   seeded and optionally re-synced from level snapshots. They count as
 //   ahead of us.
 //
-//   Latency is a constant order-entry delay: a placement or cancel sent at t
-//   takes effect before the first message at or after t + orderLatency, so a
-//   cancelled order can still fill while the cancel is in flight.
+//   Latency is constant, and has two legs, as in hftbacktest:
+//     - order entry (orderLatency): a placement or cancel sent at t takes
+//       effect before the first message at or after t + orderLatency, so a
+//       cancelled order can still fill while the cancel is in flight;
+//     - market data (mdLatency): everything the exchange sends us, book
+//       messages, fills, and acknowledgements of placements and cancels,
+//       reaches the strategy mdLatency after it happened. The strategy sees
+//       a second book that lags the exchange's, and its own orders and
+//       position as the reports it has received describe them. So it can
+//       quote off a stale touch, and re-send a quote that has already filled.
+//   A decision therefore reaches the exchange mdLatency + orderLatency after
+//   the message that prompted it. With mdLatency = 0 the strategy sees the
+//   exchange's own state, and no second book is kept.
 //
 
 #ifndef LIMIT_ORDER_BOOK_BACKTEST_BACKTESTER_H
@@ -57,6 +67,7 @@ namespace bt {
         std::size_t maxOrders = 4'096;  // starting capacity for historical orders; the book grows past it
         std::size_t snapshotDepth = 0;   // levels per side in the feed's snapshots, if it has them (LOBSTER's N)
         Nanos orderLatency = 0;          // strategy -> exchange, for placements and cancels
+        Nanos mdLatency = 0;             // exchange -> strategy: book messages, fills, acknowledgements
         Nanos markoutHorizon = 1'000'000'000; // adverse selection is measured this long after each fill
         double makerFee = 0.0;           // per share, in ticks; negative for a rebate
         double takerFee = 0.0;
@@ -70,7 +81,8 @@ namespace bt {
         Quantity remaining = 0;
         Quantity ahead = 0;          // historical volume in front of us at our price
         std::uint64_t joinSeq = 0;   // historical orders with a sequence number <= this are ahead
-        bool live = false;           // false while the placement is in flight
+        bool live = false;           // false while the placement is in flight (or, with
+                                     // market-data latency, until its acknowledgement arrives)
         bool cancelSent = false;
     };
 
@@ -112,9 +124,10 @@ namespace bt {
 
     class Backtester;
 
-    // Called after every feed message, and once per fill. Both see the book
-    // after the message is applied; actions taken here are subject to the
-    // order-entry latency.
+    // Called after every feed message, and once per fill, as the strategy
+    // receives them: mdLatency after the exchange saw them. Both see the
+    // book after the message is applied; actions taken here are subject to
+    // the order-entry latency.
     class Strategy {
     public:
         virtual ~Strategy() = default;
@@ -125,19 +138,42 @@ namespace bt {
     class Backtester {
     public:
         Backtester(const Config &config, Strategy &strategy)
-            : cfg(config), strat(strategy), book(config.minPrice, config.maxPrice, config.maxOrders, config.snapshotDepth) {}
+            : cfg(config), strat(strategy), delayed(config.mdLatency > 0), book(config.minPrice, config.maxPrice, config.maxOrders, config.snapshotDepth) {
+            if (cfg.mdLatency < 0 || cfg.orderLatency < 0) throw std::invalid_argument("latency cannot be negative");
+            if (delayed) {
+                local.emplace(config.minPrice, config.maxPrice, config.maxOrders, config.snapshotDepth);
+                shownBook = &*local;
+                shownOrders = &known;
+            }
+        }
+
+        // The strategy's view points into the object.
+        Backtester(const Backtester &) = delete;
+        Backtester &operator=(const Backtester &) = delete;
 
         // Feed one message. Messages must arrive in time order. `truth`, when
         // given, is the feed's own snapshot after this message: the book is
         // re-synced to it before the strategy looks.
         void step(const MarketEvent &e, const TopOfBook *truth = nullptr) {
-            stepWith(e, [&] { if (truth != nullptr) book.resyncTo(*truth); });
+            stepWith(e, [&]() -> std::span<const Correction> {
+                if (truth == nullptr) return {};
+                if (!delayed) {
+                    book.resyncTo(*truth);
+                    return {};
+                }
+                fixScratch.clear(); // the lagging book repeats what this re-sync does
+                book.resyncTo(*truth, &fixScratch);
+                return fixScratch;
+            });
         }
 
         // The same, with the re-sync precomputed: `fixes` are the corrections
         // ReplayBook::resyncTo recorded for this message (see DayCache.h).
         void step(const MarketEvent &e, const std::span<const Correction> fixes) {
-            stepWith(e, [&] { book.replay(fixes); });
+            stepWith(e, [&] {
+                book.replay(fixes);
+                return fixes;
+            });
         }
 
         template<class Events>
@@ -149,41 +185,60 @@ namespace bt {
         // Load the book as it stood before the first message (the feed's
         // first snapshot, with that message undone).
         void seed(const TopOfBook &levels) {
-            book.resyncTo(levels);
+            fixScratch.clear();
+            book.resyncTo(levels, delayed ? &fixScratch : nullptr);
+            seedLocal(fixScratch);
             updateMid();
         }
 
         // The same, from the corrections recorded when seeding.
         void seed(const std::span<const Correction> fixes) {
             book.replay(fixes);
+            seedLocal(fixes);
             updateMid();
         }
 
-        // Settle the remaining markouts at the last mid.
-        void finish() { settleMarkouts(true); }
+        // Settle the remaining markouts at the last mid, and deliver what is
+        // still on its way to the strategy.
+        void finish() {
+            settleMarkouts(true);
+            if (delayed) deliver(0, true);
+        }
 
         // ── what a strategy can see and do ───────────────────────────────
+        // With market-data latency, all of it is the strategy's delayed view:
+        // the lagging book, and its orders and position as reported so far.
 
-        [[nodiscard]] Nanos now() const { return clock; }
-        [[nodiscard]] std::optional<Price> bestBid() const { return book.fastBook().bestBid(); }
-        [[nodiscard]] std::optional<Price> bestAsk() const { return book.fastBook().bestAsk(); }
+        [[nodiscard]] Nanos now() const { return localClock; }
+        [[nodiscard]] std::optional<Price> bestBid() const { return view().fastBook().bestBid(); }
+        [[nodiscard]] std::optional<Price> bestAsk() const { return view().fastBook().bestAsk(); }
         [[nodiscard]] Quantity levelQuantity(const Side side, const Price p) const {
-            return book.fastBook().levelQuantity(side, p);
+            return view().fastBook().levelQuantity(side, p);
         }
-        [[nodiscard]] double mid() const { return lastMid; }
-        [[nodiscard]] Quantity position() const { return stats_.position; }
-        [[nodiscard]] const Stats &stats() const { return stats_; }
-        [[nodiscard]] const ReplayBook &marketBook() const { return book; }
+        [[nodiscard]] double mid() const { return delayed ? localMid : lastMid; }
+        [[nodiscard]] Quantity position() const { return delayed ? localPosition : stats_.position; }
+        [[nodiscard]] const ReplayBook &marketBook() const { return view(); }
 
         // Our order, or nullptr once it is filled or cancelled. The pointer
         // is valid until the next place(), step() or seed().
         [[nodiscard]] const SimOrder *order(const OrderId id) const {
-            const auto it = findOrder(id);
-            return it == orders.end() ? nullptr : &*it;
+            const std::vector<SimOrder> &list = mine();
+            const auto it = findIn(list, id);
+            return it == list.end() ? nullptr : &*it;
         }
 
         // Our open orders, by id.
-        [[nodiscard]] std::span<const SimOrder> openOrders() const { return orders; }
+        [[nodiscard]] std::span<const SimOrder> openOrders() const { return mine(); }
+
+        // ── the exchange's side, for reports and tests ───────────────────
+
+        [[nodiscard]] const Stats &stats() const { return stats_; }
+        [[nodiscard]] double exchangeMid() const { return lastMid; }
+        [[nodiscard]] const ReplayBook &exchangeBook() const { return book; }
+        [[nodiscard]] const SimOrder *exchangeOrder(const OrderId id) const {
+            const auto it = findIn(orders, id);
+            return it == orders.end() ? nullptr : &*it;
+        }
 
         // Send a GTC limit order; it reaches the exchange after the latency.
         // Any part that crosses the book then trades, the rest queues.
@@ -197,31 +252,56 @@ namespace bt {
             o.price = price;
             o.remaining = quantity;
             orders.push_back(o); // ids only grow, so `orders` stays sorted
-            actions.push_back({clock + cfg.orderLatency, ActionKind::Place, id});
+            if (delayed) known.push_back(o);
+            actions.push_back({landingTime(), ActionKind::Place, id});
             return id;
         }
 
-        // False if the order is already gone or a cancel is already in flight.
+        // False if, as far as the strategy knows, the order is already gone
+        // or a cancel is already in flight. With market-data latency the
+        // order may have filled meanwhile; the cancel then does nothing.
         bool cancel(const OrderId id) {
-            const auto it = findOrder(id);
-            if (it == orders.end() || it->cancelSent) return false;
+            std::vector<SimOrder> &list = delayed ? known : orders;
+            const auto it = findIn(list, id);
+            if (it == list.end() || it->cancelSent) return false;
             it->cancelSent = true;
-            actions.push_back({clock + cfg.orderLatency, ActionKind::Cancel, id});
+            actions.push_back({landingTime(), ActionKind::Cancel, id});
             return true;
         }
 
     private:
-        std::vector<SimOrder>::iterator findOrder(const OrderId id) {
-            const auto it = std::lower_bound(orders.begin(), orders.end(), id,
+        // Both order lists are sorted by id.
+        template<class List>
+        static auto findIn(List &list, const OrderId id) -> decltype(list.begin()) {
+            const auto it = std::lower_bound(list.begin(), list.end(), id,
                                              [](const SimOrder &o, const OrderId x) { return o.id < x; });
-            return it != orders.end() && it->id == id ? it : orders.end();
+            return it != list.end() && it->id == id ? it : list.end();
         }
 
-        [[nodiscard]] std::vector<SimOrder>::const_iterator findOrder(const OrderId id) const {
-            return const_cast<Backtester *>(this)->findOrder(id);
-        }
+        std::vector<SimOrder>::iterator findOrder(const OrderId id) { return findIn(orders, id); }
+
+        // Chosen once: a `delayed ?` on every call costs 4% of a replay.
+        [[nodiscard]] const ReplayBook &view() const { return *shownBook; }
+        [[nodiscard]] const std::vector<SimOrder> &mine() const { return *shownOrders; }
+
+        // When an action sent now reaches the exchange. Inside a callback
+        // the strategy's time is never behind the exchange's; an action sent
+        // from outside one, between steps, cannot land in the exchange's past.
+        [[nodiscard]] Nanos landingTime() const { return std::max(localClock + cfg.orderLatency, clock); }
 
         enum class ActionKind : std::uint8_t { Place, Cancel };
+
+        // Something the exchange sends the strategy, delivered mdLatency later.
+        enum class ReportKind : std::uint8_t { Market, Fill, Accepted, Cancelled };
+
+        struct Report {
+            Nanos due;
+            ReportKind kind;
+            OrderId id;               // Accepted, Cancelled
+            MarketEvent event;        // Market; its corrections are the next `fixes` in reportFixes
+            std::uint32_t fixes;
+            SimFill fill;             // Fill
+        };
 
         struct Action {
             Nanos due;
@@ -239,16 +319,24 @@ namespace bt {
         template<class Resync>
         void stepWith(const MarketEvent &e, Resync &&resync) {
             if (e.time < clock) throw std::invalid_argument("feed went back in time at " + std::to_string(e.time));
+            // At equal times the exchange goes first: a report due exactly
+            // now reaches the strategy after this message is processed.
+            if (delayed) deliver(e.time, false);
             clock = e.time;
+            if (!delayed) localClock = clock;
             ++stats_.events;
 
             releaseActions(clock);
             fillAgainst(e);
             applyToBook(e);
-            resync();
+            const std::span<const Correction> fixes = resync();
             if (!book.dropped().empty()) retireDropped();
             updateMid();
             settleMarkouts(false);
+            if (delayed) {
+                queueMarket(e, fixes);
+                return;
+            }
             dispatchFills();
             strat.onEvent(*this, e);
             dispatchFills(); // actions never fill synchronously, but keep the invariant cheap to see
@@ -256,15 +344,115 @@ namespace bt {
 
         // Constant latency keeps `actions` in due order, so it is a FIFO.
         void releaseActions(const Nanos t) {
-            while (!actions.empty() && actions.front().due <= t) {
-                const Action a = actions.front();
-                actions.pop_front();
-                const auto it = findOrder(a.id);
-                if (it == orders.end()) continue; // filled before the action landed
-                if (a.kind == ActionKind::Cancel) orders.erase(it);
-                else arrive(*it, a.due);
-            }
+            while (!actions.empty() && actions.front().due <= t) releaseFront();
             eraseFilled();
+        }
+
+        void releaseFront() {
+            const Action a = actions.front();
+            actions.pop_front();
+            const auto it = findOrder(a.id);
+            if (it == orders.end()) return; // filled before the action landed
+            if (a.kind == ActionKind::Cancel) {
+                orders.erase(it);
+                report(a.due, ReportKind::Cancelled, a.id);
+            } else {
+                arrive(*it, a.due);
+                report(a.due, ReportKind::Accepted, a.id);
+            }
+        }
+
+        void queueMarket(const MarketEvent &e, const std::span<const Correction> fixes) {
+            Report r{};
+            r.due = e.time + cfg.mdLatency;
+            r.kind = ReportKind::Market;
+            r.event = e;
+            r.fixes = static_cast<std::uint32_t>(fixes.size());
+            for (const Correction &c: fixes) reportFixes.push_back(c);
+            reports.push_back(r);
+        }
+
+        void queueFill(const SimFill &f) {
+            Report r{};
+            r.due = f.time + cfg.mdLatency;
+            r.kind = ReportKind::Fill;
+            r.fill = f;
+            reports.push_back(r);
+        }
+
+        void report(const Nanos t, const ReportKind kind, const OrderId id) {
+            if (!delayed) return;
+            Report r{};
+            r.due = t + cfg.mdLatency;
+            r.kind = kind;
+            r.id = id;
+            reports.push_back(r);
+        }
+
+        // Delivers the reports due before `until` (or all of them), each at
+        // its own time. Actions the strategy sends meanwhile reach the
+        // exchange in between, in time order, so exchange time only grows;
+        // every report is due a constant mdLatency after its exchange time,
+        // so `reports` stays in due order. Once the feed has ended (`all`),
+        // actions no longer reach the exchange.
+        void deliver(const Nanos until, const bool all) {
+            for (;;) {
+                const bool haveReport = !reports.empty() && (all || reports.front().due < until);
+                const bool haveAction = !all && !actions.empty() && actions.front().due < until;
+                if (!haveReport && !haveAction) return;
+                if (haveAction && (!haveReport || actions.front().due <= reports.front().due)) {
+                    releaseFront(); // the exchange goes first at equal times
+                    eraseFilled();
+                    continue;
+                }
+                const Report r = reports.front();
+                reports.pop_front();
+                localClock = r.due;
+                switch (r.kind) {
+                    case ReportKind::Market: {
+                        fixBatch.clear();
+                        for (std::uint32_t i = 0; i < r.fixes; ++i) {
+                            fixBatch.push_back(reportFixes.front());
+                            reportFixes.pop_front();
+                        }
+                        local->apply(r.event);
+                        local->replay(fixBatch);
+                        local->clearDropped();
+                        updateLocalMid();
+                        strat.onEvent(*this, r.event);
+                        break;
+                    }
+                    case ReportKind::Fill: {
+                        const SimFill &f = r.fill;
+                        localPosition += f.side == Side::BUY ? f.quantity : -f.quantity;
+                        if (const auto it = findIn(known, f.id); it != known.end()) {
+                            it->remaining -= f.quantity;
+                            if (it->remaining <= 0) known.erase(it);
+                        }
+                        strat.onFill(*this, f);
+                        break;
+                    }
+                    case ReportKind::Accepted:
+                        if (const auto it = findIn(known, r.id); it != known.end()) it->live = true;
+                        break;
+                    case ReportKind::Cancelled:
+                        if (const auto it = findIn(known, r.id); it != known.end()) known.erase(it);
+                        break;
+                }
+            }
+        }
+
+        void seedLocal(const std::span<const Correction> fixes) {
+            if (!delayed) return;
+            local->replay(fixes);
+            local->clearDropped();
+            updateLocalMid();
+        }
+
+        void updateLocalMid() {
+            const auto bid = local->fastBook().bestBid();
+            const auto ask = local->fastBook().bestAsk();
+            if (bid && ask) localMid = (static_cast<double>(*bid) + static_cast<double>(*ask)) / 2.0;
         }
 
         // Our order reaches the exchange: take what crosses, queue the rest
@@ -278,7 +466,7 @@ namespace bt {
                 return o.remaining > 0;
             });
             o.live = true;
-            o.ahead = levelQuantity(o.side, o.price);
+            o.ahead = book.fastBook().levelQuantity(o.side, o.price);
             o.joinSeq = seqCounter;
         }
 
@@ -409,7 +597,12 @@ namespace bt {
             stats_.maxAbsPosition = std::max(stats_.maxAbsPosition, stats_.position < 0 ? -stats_.position : stats_.position);
             ++stats_.fills;
             markouts.push_back({t + cfg.markoutHorizon, o.side, p, q});
-            newFills.push_back({t, o.id, o.side, p, q, maker});
+            const SimFill f{t, o.id, o.side, p, q, maker};
+            if (!delayed) {
+                newFills.push_back(f);
+                return;
+            }
+            queueFill(f);
         }
 
         void eraseFilled() {
@@ -417,8 +610,8 @@ namespace bt {
         }
 
         void updateMid() {
-            const auto bid = bestBid();
-            const auto ask = bestAsk();
+            const auto bid = book.fastBook().bestBid();
+            const auto ask = book.fastBook().bestAsk();
             if (bid && ask) lastMid = (static_cast<double>(*bid) + static_cast<double>(*ask)) / 2.0;
         }
 
@@ -446,6 +639,9 @@ namespace bt {
 
         Config cfg;
         Strategy &strat;
+        bool delayed; // mdLatency > 0: the strategy sees the lagging view below
+        const ReplayBook *shownBook = &book;                // what the strategy sees: `book` or `*local`
+        const std::vector<SimOrder> *shownOrders = &orders; // `orders` or `known`
         ReplayBook book;
         IdMap<std::uint64_t> arrival;  // resting historical order -> arrival number
         IdMap<std::uint64_t> departed; // the same, for orders a re-sync removed
@@ -456,9 +652,19 @@ namespace bt {
         Fifo<PendingMarkout> markouts;
         std::vector<SimFill> newFills, fillBatch;
         OrderId nextId = 1;
-        Nanos clock = 0;
+        Nanos clock = 0;          // the exchange's time
+        Nanos localClock = 0;     // the strategy's; the same without mdLatency
         double lastMid = 0.0;
         Stats stats_;
+
+        // The strategy's view, kept only with market-data latency.
+        std::optional<ReplayBook> local;    // the book, mdLatency behind the exchange's
+        std::vector<SimOrder> known;        // our orders as reported so far, sorted by id
+        Quantity localPosition = 0;
+        double localMid = 0.0;
+        Fifo<Report> reports;               // on their way to the strategy
+        Fifo<Correction> reportFixes;       // the re-sync corrections of queued Market reports
+        std::vector<Correction> fixScratch, fixBatch;
     };
 }
 

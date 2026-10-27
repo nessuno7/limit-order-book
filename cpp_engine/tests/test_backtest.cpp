@@ -297,6 +297,127 @@ TEST(backtest_quote_at_touch_on_synthetic_flow) {
     CHECK_EQ(s.unknownOrders, 0u);
 }
 
+// ---- market-data latency ------------------------------------------------------
+
+namespace {
+    // Records what the strategy is shown at every message.
+    class Recorder : public bt::Strategy {
+    public:
+        struct Seen {
+            bt::Nanos now;
+            MarketEvent event;
+            bt::TopOfBook top;
+            double mid;
+            bool operator==(const Seen &) const = default;
+        };
+
+        void onEvent(bt::Backtester &b, const MarketEvent &e) override {
+            seen.push_back({b.now(), e, b.marketBook().top(5), b.mid()});
+        }
+
+        std::vector<Seen> seen;
+    };
+
+    bt::Config mdConfig(const bt::Nanos orderLatency, const bt::Nanos mdLatency) {
+        bt::Config c = config(orderLatency);
+        c.mdLatency = mdLatency;
+        return c;
+    }
+}
+
+TEST(backtest_md_latency_shows_each_message_late_and_in_order) {
+    // The strategy must see exactly the sequence of books it sees without
+    // latency, each one mdLatency later.
+    const FlowParams params = flowProfile(2);
+    const auto feed = bt::syntheticFeed(9, 20'000, params);
+    bt::Config c;
+    c.minPrice = params.minPrice;
+    c.maxPrice = params.maxPrice;
+    Recorder now, late;
+    bt::Backtester a(c, now);
+    c.mdLatency = 3'000; // several messages apart in this feed
+    bt::Backtester b(c, late);
+    a.run(feed);
+    b.run(feed);
+    CHECK_EQ(now.seen.size(), feed.size());
+    CHECK_EQ(late.seen.size(), feed.size());
+    bool shifted = true, same = true;
+    for (std::size_t i = 0; i < feed.size(); ++i) {
+        shifted = shifted && now.seen[i].now == feed[i].time && late.seen[i].now == feed[i].time + 3'000;
+        same = same && now.seen[i].event == late.seen[i].event && now.seen[i].top == late.seen[i].top &&
+               now.seen[i].mid == late.seen[i].mid;
+    }
+    CHECK(shifted);
+    CHECK(same);
+}
+
+TEST(backtest_md_latency_delays_fills_and_acknowledgements) {
+    bt::Backtester b(mdConfig(0, 100), idle);
+    b.step(ev(0, EventType::Add, 1, Side::BUY, 100, 5));
+    const OrderId me = b.place(Side::BUY, 100, 2);
+    b.step(ev(10, EventType::Add, 2, Side::BUY, 100, 1)); // we arrive first, at t = 0
+    CHECK(b.exchangeOrder(me)->live);
+    CHECK(!b.order(me)->live); // the acknowledgement is due at 100
+    CHECK(!b.bestBid().has_value()); // nor has the strategy seen any message yet
+
+    b.step(ev(20, EventType::Execute, 1, Side::BUY, 100, 5));
+    b.step(ev(30, EventType::Execute, 2, Side::BUY, 100, 1)); // behind us: we fill 1
+    CHECK_EQ(b.stats().position, 1);
+    CHECK_EQ(b.position(), 0);
+
+    b.step(ev(110, EventType::Add, 3, Side::SELL, 120, 1)); // delivers what was due before 110
+    CHECK(b.order(me)->live);
+    CHECK_EQ(b.order(me)->remaining, 2);
+    CHECK_EQ(b.position(), 0);
+    CHECK_EQ(*b.bestBid(), 100);
+
+    b.step(ev(140, EventType::Add, 4, Side::SELL, 100, 3)); // crosses us: our last share fills
+    CHECK(b.exchangeOrder(me) == nullptr);
+    CHECK_EQ(b.position(), 1); // the first fill has arrived, the second has not
+    CHECK_EQ(b.order(me)->remaining, 1);
+    CHECK(b.cancel(me)); // the strategy does not know it is gone yet
+
+    b.step(ev(150, EventType::Delete, 4, Side::SELL, 100, 3));
+    b.finish();
+    CHECK(b.order(me) == nullptr);
+    CHECK_EQ(b.position(), 2);
+    CHECK_EQ(b.stats().position, 2);
+    CHECK_EQ(b.stats().boughtVolume, 2); // the cancel landed on nothing
+}
+
+TEST(backtest_md_latency_cancel_acknowledged_late) {
+    bt::Backtester b(mdConfig(10, 100), idle);
+    b.step(ev(0, EventType::Add, 1, Side::SELL, 110, 5));
+    const OrderId me = b.place(Side::BUY, 100, 2);
+    b.step(ev(200, EventType::Add, 2, Side::BUY, 90, 1)); // we arrived at 10, acknowledged at 110
+    CHECK(b.order(me)->live);
+    CHECK(b.cancel(me)); // between steps: it cannot land before the exchange's 200
+    CHECK(!b.cancel(me));
+    b.step(ev(300, EventType::Add, 3, Side::BUY, 91, 1)); // the cancel lands at 200
+    CHECK(b.exchangeOrder(me) == nullptr);
+    CHECK(b.order(me) != nullptr); // its acknowledgement is due at 300, after this message
+    b.finish();
+    CHECK(b.order(me) == nullptr);
+}
+
+TEST(backtest_quote_at_touch_with_md_latency) {
+    const FlowParams params = flowProfile(0);
+    const auto feed = bt::syntheticFeed(5, 50'000, params);
+    bt::Config c;
+    c.minPrice = params.minPrice;
+    c.maxPrice = params.maxPrice;
+    c.orderLatency = 20'000;
+    c.mdLatency = 30'000;
+    bt::QuoteAtTouch strategy(5, 50);
+    bt::Backtester b(c, strategy);
+    b.run(feed);
+    const bt::Stats &s = b.stats();
+    CHECK(s.fills > 0);
+    CHECK_EQ(s.position, s.boughtVolume - s.soldVolume);
+    CHECK_EQ(b.position(), s.position); // every fill reported by the end
+    CHECK_EQ(s.markoutVolume, s.boughtVolume + s.soldVolume);
+}
+
 // ---- LOBSTER snapshots and placeholder volume ----------------------------------------
 
 TEST(lobster_book_line_parses_and_skips_empty_levels) {
@@ -470,6 +591,39 @@ TEST(compiled_day_replays_exactly_like_online_resync) {
     }
 }
 
+TEST(backtest_md_latency_view_follows_resyncs) {
+    const bt::LobsterDay day = hiddenAddDay(4, 3);
+    const bt::CompiledDay compiled = bt::compileDay(day);
+    bt::Config c = config();
+    c.minPrice = day.minPrice - 1;
+    c.maxPrice = day.maxPrice + 1;
+    c.snapshotDepth = day.depth;
+    Recorder now, online, cached;
+    bt::Backtester a(c, now);
+    c.mdLatency = 5'000;
+    bt::Backtester b(c, online), d(c, cached);
+    a.seed(compiled.seedFixes());
+    b.seed(day.initial);
+    d.seed(compiled.seedFixes());
+    for (std::size_t i = 0; i < day.messages.size(); ++i) {
+        if (day.messages[i]) b.step(*day.messages[i], &day.books[i]);
+    }
+    for (std::size_t i = 0; i < compiled.events.size(); ++i) {
+        a.step(compiled.events[i], compiled.fixesAfter(i));
+        d.step(compiled.events[i], compiled.fixesAfter(i));
+    }
+    a.finish();
+    b.finish();
+    d.finish();
+    CHECK_EQ(now.seen.size(), compiled.events.size());
+    CHECK(online.seen == cached.seen);
+    bool same = online.seen.size() == now.seen.size();
+    for (std::size_t i = 0; same && i < now.seen.size(); ++i) {
+        same = now.seen[i].top == online.seen[i].top && now.seen[i].now + 5'000 == online.seen[i].now;
+    }
+    CHECK(same);
+}
+
 TEST(day_cache_round_trips_and_rejects_stale_or_damaged_files) {
     const bt::CompiledDay day = bt::compileDay(hiddenAddDay(4, 2));
     const std::string path = (std::filesystem::temp_directory_path() / "lob_test_day.lobday").string();
@@ -507,7 +661,7 @@ TEST(id_map_matches_unordered_map_under_random_ops) {
     for (int i = 0; i < 200'000; ++i) {
         const OrderId id = rng() % 3'000; // dense ids: long probe runs and many shifts on erase
         switch (rng() % 3) {
-            case 0: m.set(id, i + 1); ref[id] = static_cast<std::uint64_t>(i + 1); break;
+            case 0: m.set(id, static_cast<std::uint64_t>(i + 1)); ref[id] = static_cast<std::uint64_t>(i + 1); break;
             case 1: m.erase(id); ref.erase(id); break;
             default: {
                 const auto it = ref.find(id);
