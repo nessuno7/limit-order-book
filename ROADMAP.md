@@ -8,7 +8,7 @@ on real market data, then build a system on top.
 |---|---|---|
 | 1 | Correctness: differential fuzzing against a naive reference book | **done** |
 | 2 | Latency: distributions, a zero-allocation book, profiling | **done** |
-| 3 | Real data: rebuild books from Nasdaq ITCH / LOBSTER and check them | planned |
+| 3 | Real data: rebuild books from Nasdaq ITCH / LOBSTER and check them | LOBSTER **done**, ITCH planned |
 | 4 | A market-making backtester with queue-position modelling | **in progress** |
 
 ---
