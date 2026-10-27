@@ -180,6 +180,30 @@ Next, roughly in order:
    - 0 messages are left unexplained;
    - all 10 levels match on 96.1% of rows. The rest is a level the feed never
      described coming into view at depth 10.
+
+   **Replay speed.** Re-syncing after every message first cut the LOBSTER
+   backtest to 0.8 M messages/s (synthetic, with no snapshots: 4.6 M). The
+   historical book depends only on the feed, never on the strategy, so the
+   corrections each re-sync makes are now computed once per day
+   (`backtest/DayCache.h`) and cached next to the message file (10.5 MB for
+   the 10-level day, rebuilt when a CSV changes). Measured on the 10-level
+   day with `lob_backtest --repeat 20`, all results unchanged:
+
+   | step | load | replay, M msg/s |
+   |---|---|---|
+   | re-sync online, every message | 0.50 s | 0.8 |
+   | no allocation in the re-sync, per-level scans | 0.50 s | 1.6 |
+   | book sized to the live orders (FastBook grows) | 0.50 s | 1.7 |
+   | corrections precomputed, binary cache | 0.012 s | 5.1 |
+   | flat containers in the backtester | 0.012 s | 10.0 |
+   | skip messages that cannot reach our orders | 0.012 s | 11.9 |
+   | arrival map holds only resting orders | 0.012 s | 12.0 (-9% ns/event) |
+
+   Per event that is now about 35 ns of book work, 25 ns of backtester
+   bookkeeping and 25 ns of QuoteAtTouch itself. The synthetic feed runs at
+   about 14 M/s. `--resync online` and `--resync memory` remain for checking.
+   Tried and dropped: identity hashing of ids (+3%, inside the noise) and a
+   single-lookup reduce (no gain).
 2. **Market-data latency.** The strategy should see the book as it was
    `mdLatency` ago, not as it is now.
 3. **A market-impact option.** Let our fills consume the aggressor's volume:
