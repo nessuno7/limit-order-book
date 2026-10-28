@@ -4,7 +4,7 @@
 
 Serves ui/index.html and a small JSON API around cpp_engine's lob_backtest:
 it runs the backtester with the parameters from the page, keeps every run's
-output (summary.json, series.csv, fills.csv) under backtest_out/runs/, and
+output (summary.json, series.csv, fills.csv) under out/backtests/, and
 hands them back for plotting. Standard library only, and bound to 127.0.0.1.
 
     GET    /api/datasets      the synthetic profiles and the LOBSTER days in data/lobster/
@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
-RUNS = ROOT / "backtest_out" / "runs"
+RUNS = ROOT / "out" / "backtests"
 LOBSTER = ROOT / "data" / "lobster"
 EXE = ROOT / "cpp_engine" / "build" / "release" / ("lob_backtest.exe" if sys.platform == "win32" else "lob_backtest")
 

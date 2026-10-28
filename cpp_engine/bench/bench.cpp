@@ -8,7 +8,7 @@
 //   - there is no tracemalloc, so "peak_memory_bytes" is omitted (it is an
 //     optional key in the schema).
 //
-// Usage: lob_bench [output.json]   (default ../benchmark/results_cpp.json)
+// Usage: lob_bench [output.json]   (default ../results/cpp_microbench.json)
 //
 
 #include "continuous_auction/continuous_auction.h"
@@ -207,7 +207,7 @@ namespace {
 }
 
 int main(int argc, char **argv) {
-    const std::string path = argc > 1 ? argv[1] : "../benchmark/results_cpp.json";
+    const std::string path = argc > 1 ? argv[1] : "../results/cpp_microbench.json";
     const int n = PARAMS.nOrders;
     std::cout << "Running benchmarks  n=" << n << "  seed=" << PARAMS.seed << "\n\n";
 

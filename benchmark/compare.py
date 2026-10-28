@@ -9,7 +9,7 @@ Python vs C++ on the same order flow.
 3. Checks the engines agree: same trade count, volume, notional, and the same
    FNV-1a digest over every fill and over the final book / pending batch. On
    a mismatch the two trade logs are diffed and the first divergence printed.
-4. Writes benchmark/replay_results.json and benchmark/replay_results.md.
+4. Writes results/replay.json and results/replay.md.
 
     python benchmark/compare.py [--py-reps 3] [--cpp-reps 10] [--cpp PATH] [--only NAME]
 
@@ -28,7 +28,9 @@ import workload  # noqa: E402
 
 EXE = ".exe" if sys.platform == "win32" else ""
 DEFAULT_CPP = HERE.parent / "cpp_engine" / "build" / "release" / f"lob_replay{EXE}"
-OUT = HERE / "out"
+ROOT = HERE.parent
+OUT = ROOT / "out" / "replay_trades"
+RESULTS = ROOT / "results"
 CHECK_KEYS = ("events", "orders", "trades", "volume", "notional", "trade_digest", "state_digest")
 
 
@@ -71,7 +73,8 @@ def main():
     if not args.cpp.exists():
         raise SystemExit(f"{args.cpp} not found -- build it: cd cpp_engine && mingw32-make replay")
 
-    paths = workload.generate(HERE / "workloads")
+    paths = workload.generate(ROOT / "out" / "workloads")
+    OUT.mkdir(parents=True, exist_ok=True)
     rows = []
     ok = True
     for name, path in paths.items():
@@ -84,7 +87,6 @@ def main():
         py.update(heap_peak_bytes=run_json([sys.executable, str(HERE / "replay.py"), str(path),
                                             "--mode", "memory"])["heap_peak_bytes"])
         print(f"{name}: c++ ...", flush=True)
-        OUT.mkdir(exist_ok=True)
         cpp = run_json([str(args.cpp), str(path), str(args.cpp_reps), str(OUT / f"{name}_cpp.csv")])
 
         same = all(py[k] == cpp[k] for k in CHECK_KEYS)
@@ -100,7 +102,7 @@ def main():
         "workloads": {k: v for k, v in workload.SCENARIOS.items()},
         "results": rows,
     }
-    (HERE / "replay_results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    (RESULTS / "replay.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     md = ["| market | events | trades | identical fills | Python time | C++ time | speed-up "
           "| Python heap peak | C++ heap peak | heap ratio | Python RSS peak | C++ RSS peak |",
@@ -115,7 +117,7 @@ def main():
             f"| **{p['heap_peak_bytes'] / c['heap_peak_bytes']:.1f}x** "
             f"| {fmt_bytes(p['rss_peak_bytes'])} | {fmt_bytes(c['rss_peak_bytes'])} |")
     table = "\n".join(md)
-    (HERE / "replay_results.md").write_text(table + "\n", encoding="utf-8")
+    (RESULTS / "replay.md").write_text(table + "\n", encoding="utf-8")
     print("\n" + table)
     if not ok:
         raise SystemExit("engines disagree -- see MISMATCH above")

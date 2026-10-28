@@ -241,7 +241,7 @@ def run_all() -> list[dict]:
     return results
 
 
-def write_results(results: list[dict], path: str = "benchmark/results.json") -> None:
+def write_results(results: list[dict], path: str = "results/python_microbench.json") -> None:
     out = {
         "params": PARAMS,
         "results": results,

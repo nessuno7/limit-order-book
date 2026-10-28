@@ -128,7 +128,7 @@ By operation, deep book, p50 / p99 / p99.99:
 The **shallow book** (~70 orders) tells the same story. All ops p50 / p99 /
 p99.99: engine 100 ns / 591 ns / 5.8 µs, `FastBook` 30 ns / 311 ns /
 0.80 µs. Throughput is 4.7M against 19.1M ops/s. Full tables are in
-`benchmark/latency_results.md` and `.json`. Maximums of 0.5–1 ms appear in
+[`results/latency.md`](results/latency.md). Maximums of 0.5–1 ms appear in
 every book and are OS interrupts, not the code.
 
 What the numbers say:
@@ -255,7 +255,9 @@ cpp_engine/                    # C++20 port, same structure and semantics
 └── tests/                     # dependency-free test suite
 
 tests/                         # Python example, edge-case and invariant tests
-benchmark/                     # Python micro-benchmark, replay workloads, results
+benchmark/                     # Python micro-benchmark and the Python-vs-C++ replay
+results/                       # committed benchmark and fuzz outputs (see results/README.md)
+out/                           # regenerated scratch output, not committed
 ```
 
 ## Setup
@@ -293,9 +295,9 @@ cd cpp_engine
 mingw32-make test                      # test suite (FILTER=name for a subset)
 mingw32-make fuzz OPS=2000000 SEEDS=6  # differential fuzzing, every book
 mingw32-make mutants                   # prove the fuzzer catches injected bugs
-mingw32-make latency                   # latency distributions -> benchmark/latency_results.*
+mingw32-make latency                   # latency distributions -> results/latency.json
 mingw32-make profile PROFILE_IMPL=engine   # perf on Linux, sampling profiler on Windows
-mingw32-make bench                     # micro-benchmark -> benchmark/results_cpp.json
+mingw32-make bench                     # micro-benchmark -> results/cpp_microbench.json
 mingw32-make replay                    # replayer used by benchmark/compare.py
 mingw32-make backtest                  # market-making backtester (BT_ARGS= for options)
 mingw32-make ui                        # backtest viewer on http://127.0.0.1:8765
@@ -306,7 +308,7 @@ Python standard library. The page runs backtests on the synthetic flows or on
 any LOBSTER day in `data/lobster/`, with the quote size, position limit,
 order-entry and market-data latency, fees and markout horizon set in the form.
 It plots the touch with our quotes and fills, the position and the PnL, and
-can overlay runs to compare them. Every run is kept in `backtest_out/runs/`
+can overlay runs to compare them. Every run is kept in `out/backtests/`
 (summary.json, series.csv, fills.csv). Zooming in re-runs that window on the
 server and samples it finely, since a replay is deterministic and takes tens
 of milliseconds. The run, the compared runs and the zoom are kept in the URL.
@@ -316,7 +318,7 @@ Google Benchmark builds through CMake (it is fetched, so it is opt-in):
 ```sh
 cmake -S . -B build-gbench -G Ninja -DCMAKE_BUILD_TYPE=Release -DLOB_GBENCH=ON
 cmake --build build-gbench --target lob_gbench
-build-gbench/lob_gbench --benchmark_repetitions=3 --benchmark_report_aggregates_only=true
+build-gbench/lob_gbench --benchmark_repetitions=3 --benchmark_report_aggregates_only=true \n    --benchmark_out=results/gbench.json --benchmark_out_format=json
 ```
 
 CLion reads `CMakeLists.txt` directly and offers every target: `lob_app`,

@@ -15,7 +15,7 @@ File format (one event per line, after a `# kind=... rule=...` header):
     tif    G / I / F  (GTC / IOC / FOK)
     ts_us  microseconds after a fixed epoch; sets time priority in call auctions
 
-Usage: python benchmark/workload.py [out_dir]   (default benchmark/workloads)
+Usage: python benchmark/workload.py [out_dir]   (default out/workloads)
 """
 import random
 import sys
@@ -99,6 +99,6 @@ def generate(out_dir: Path) -> dict[str, Path]:
 
 
 if __name__ == "__main__":
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "workloads"
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent.parent / "out" / "workloads"
     for name, path in generate(out).items():
         print(f"{name:15s} -> {path}")

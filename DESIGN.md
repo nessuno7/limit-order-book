@@ -612,7 +612,7 @@ This answers "how do the two engines compare on *the same* realistic work?"
      interpreter's own baseline.
 
 Results are in [README.md](README.md#python-vs-c) and
-`benchmark/replay_results.{json,md}`.
+`results/replay.{json,md}`.
 
 ---
 

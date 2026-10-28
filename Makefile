@@ -28,7 +28,7 @@ run: venv ## Run the matching engine
 test: venv ## Run the test suite
 	$(PY) -m pytest
 
-bench: venv ## Run benchmarks and write benchmark/results.json
+bench: venv ## Run benchmarks and write results/python_microbench.json
 	PYTHONPATH=. $(PY) benchmark/bench.py
 
 compare: venv ## Replay the same order flow through Python and C++; check fills, compare time + memory

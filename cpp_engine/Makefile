@@ -107,9 +107,9 @@ $(TEST_BIN): $(TEST_OBJS) $(LIB)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 # Always an optimised build: timing a -O0 binary measures nothing useful.
-bench: ## Run the benchmark (release build) and write ../benchmark/results_cpp.json
+bench: ## Run the benchmark (release build) and write ../results/cpp_microbench.json
 	@$(MAKE) --no-print-directory BUILD=release $(BENCH_BIN)
-	./$(BENCH_BIN) ../benchmark/results_cpp.json
+	./$(BENCH_BIN) ../results/cpp_microbench.json
 
 $(BENCH_BIN): $(BENCH_OBJ) build/release/liblob.a
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -131,9 +131,9 @@ mutants: ## Inject bugs into FastBook one at a time; the fuzzer must catch each
 	@$(MAKE) --no-print-directory BUILD=release lib
 	python fuzz/mutation_check.py
 
-latency: ## Per-op latency distributions (p50..p99.99) for every book; writes ../benchmark/latency_results.json
+latency: ## Per-op latency distributions (p50..p99.99) for every book; writes ../results/latency.json
 	@$(MAKE) --no-print-directory BUILD=release $(LATENCY_BIN)
-	./$(LATENCY_BIN) ../benchmark/latency_results.json
+	./$(LATENCY_BIN) ../results/latency.json
 
 $(LATENCY_BIN): $(LATENCY_OBJ) build/release/liblob.a
 	$(CXX) $(LDFLAGS) $^ -o $@ $(REPLAY_LIBS)

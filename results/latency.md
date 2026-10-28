@@ -52,4 +52,4 @@ TSC: 1.797 GHz, timer overhead 20.0 ns (subtracted)
 | MapBook (std::map + pool) | 11.6 M ops/s | 90219 | 45.1 | 2312 |
 | FastBook (flat array) | 25.0 M ops/s | 0 | 0.0 | 2312 |
 
-written to ../benchmark/latency_results.json
+written to ../results/latency.json
