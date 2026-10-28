@@ -38,6 +38,16 @@ namespace bt {
         bool operator==(const MarketEvent &) const = default;
     };
 
+    // Side arithmetic, for an order on `side`.
+    inline Side opposite(const Side side) { return side == Side::BUY ? Side::SELL : Side::BUY; }
+
+    // True if `a` is a strictly better price than `b`: higher for a bid, lower for an ask.
+    inline bool better(const Side side, const Price a, const Price b) { return side == Side::BUY ? a > b : a < b; }
+    inline bool atLeastAsGood(const Side side, const Price a, const Price b) { return !better(side, b, a); }
+
+    // +q for a buy, -q for a sell: the change in position.
+    inline Quantity signedQuantity(const Side side, const Quantity q) { return side == Side::BUY ? q : -q; }
+
     inline const char *name(const EventType t) {
         switch (t) {
             case EventType::Add: return "Add";

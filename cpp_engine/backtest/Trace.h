@@ -58,7 +58,7 @@ namespace bt {
         }
 
         void onFill(Backtester &b, const SimFill &f) override {
-            position += f.side == Side::BUY ? f.quantity : -f.quantity;
+            position += signedQuantity(f.side, f.quantity);
             fills_.push_back({f, position});
             inner.onFill(b, f);
         }
@@ -116,7 +116,7 @@ namespace bt {
             for (const SimOrder &o: b.exchangeOrders()) {
                 if (!o.live || o.remaining <= 0) continue;
                 std::optional<Price> &best = o.side == Side::BUY ? s.ourBid : s.ourAsk;
-                if (!best || (o.side == Side::BUY ? o.price > *best : o.price < *best)) best = o.price;
+                if (!best || better(o.side, o.price, *best)) best = o.price;
             }
             s.position = b.stats().position;
             s.pnl = b.stats().pnl(b.exchangeMid());
