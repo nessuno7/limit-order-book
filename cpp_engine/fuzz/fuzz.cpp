@@ -14,9 +14,9 @@
 //   lob_fuzz [--ops N] [--seeds K] [--seed S] [--check-every N] [--impl engine|map|fast|all]
 //
 
-#include "harness/adapters.h"
-#include "harness/op_generator.h"
-#include "harness/reference_book.h"
+#include "harness/Adapters.h"
+#include "harness/OpGenerator.h"
+#include "harness/ReferenceBook.h"
 
 #include <chrono>
 #include <cstdint>

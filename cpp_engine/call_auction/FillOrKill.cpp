@@ -2,7 +2,7 @@
 // Port of python_engine/call_auction/fok.py
 //
 
-#include "fok.h"
+#include "FillOrKill.h"
 
 namespace {
     // A market order on either side always crosses.

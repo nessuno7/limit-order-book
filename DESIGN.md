@@ -95,12 +95,12 @@ C++ one.
 |---|---|---|
 | data model | `orderbook/order.py` | `orderbook/Order.h`, `Trade.h`, `Types.h` |
 | order storage | the garbage collector | `orderbook/OrderArena.h` |
-| book | `orderbook/orderbook.py` | `orderbook/Orderbook.{h,cpp}` |
+| book | `orderbook/orderbook.py` | `orderbook/OrderBook.{h,cpp}` |
 | engine interface | `engine.py` | `Engine.{h,cpp}` |
 | continuous market | `continuous_auction/` | `continuous_auction/` |
-| batching | `call_auction/call_auction.py` | `call_auction/call_auction.{h,cpp}` |
-| pricing strategy | `call_auction/pricing_rule.py` | `call_auction/pricing_rule.h` |
-| FOK feasibility | `call_auction/fok.py` | `call_auction/fok.{h,cpp}` |
+| batching | `call_auction/call_auction.py` | `call_auction/CallAuction.{h,cpp}` |
+| pricing strategy | `call_auction/pricing_rule.py` | `call_auction/PricingRule.h` |
+| FOK feasibility | `call_auction/fok.py` | `call_auction/FillOrKill.{h,cpp}` |
 | pricing rules | `call_auction/rules/` | `call_auction/rules/` |
 
 The file tree is mirrored one-to-one on purpose. Each C++ file names the
@@ -633,7 +633,7 @@ fills as an independent oracle, on millions of random operations.
                 every 1,000 ops and at the end: every resting order, in priority order
 ```
 
-**The oracle is deliberately naive** (`harness/reference_book.h`). Each side
+**The oracle is deliberately naive** (`harness/ReferenceBook.h`). Each side
 is one `std::vector` kept sorted best first, FIFO among equal prices.
 Insertion finds its slot by linear scan, matching eats the front, cancel
 searches. It is written from the matching rules, not from either real book,
@@ -641,7 +641,7 @@ and is short enough to check by eye. Slow is the point: there is no
 cleverness for a bug to hide in, and an O(n) oracle is still fast enough for
 millions of ops on books of thousands of orders.
 
-**The flow is shaped like a market, not noise** (`harness/op_generator.h`).
+**The flow is shaped like a market, not noise** (`harness/OpGenerator.h`).
 A mid price random-walks. Most limits sit a few ticks behind it, a minority
 cross it, and a few large orders sweep several levels. The mix is about
 55% adds, 25% cancels, 20% modifies. Market orders and IOC/FOK are included,
@@ -741,7 +741,7 @@ of each statistic over the passes, so one pass hit by an interrupt doesn't
 decide a number. Windows' own clock ticks at 100 ns, too coarse for
 operations that take 30. `bench/gbench.cpp` measures the same books with
 Google Benchmark, and `make profile` samples them (`perf` on Linux; on
-Windows a small sampling profiler in `bench/sampler.h`, since MinGW's `gprof`
+Windows a small sampling profiler in `bench/Sampler.h`, since MinGW's `gprof`
 records call counts but no time).
 
 ---

@@ -6,7 +6,7 @@
 #include "helpers.h"
 #include "test_framework.h"
 
-#include "call_auction/rules/discriminatory.h"
+#include "call_auction/rules/Discriminatory.h"
 
 #include <stdexcept>
 

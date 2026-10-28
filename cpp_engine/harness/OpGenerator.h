@@ -15,7 +15,7 @@
 #ifndef LIMIT_ORDER_BOOK_OP_GENERATOR_H
 #define LIMIT_ORDER_BOOK_OP_GENERATOR_H
 
-#include "harness/op.h"
+#include "harness/Op.h"
 
 #include <algorithm>
 #include <cstdint>

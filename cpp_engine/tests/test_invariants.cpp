@@ -7,9 +7,9 @@
 #include "helpers.h"
 #include "test_framework.h"
 
-#include "call_auction/rules/discriminatory.h"
-#include "call_auction/rules/uniform.h"
-#include "continuous_auction/continuous_auction.h"
+#include "call_auction/rules/Discriminatory.h"
+#include "call_auction/rules/Uniform.h"
+#include "continuous_auction/ContinuousDoubleAuction.h"
 
 #include <algorithm>
 #include <random>

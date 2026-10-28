@@ -15,9 +15,9 @@
 // free-running benchmark would grow its memory without bound.
 //
 
-#include "harness/adapters.h"
-#include "harness/op_generator.h"
-#include "harness/reference_book.h"
+#include "harness/Adapters.h"
+#include "harness/OpGenerator.h"
+#include "harness/ReferenceBook.h"
 
 #include <benchmark/benchmark.h>
 

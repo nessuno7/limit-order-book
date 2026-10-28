@@ -6,7 +6,7 @@
 #include "helpers.h"
 #include "test_framework.h"
 
-#include "call_auction/rules/uniform.h"
+#include "call_auction/rules/Uniform.h"
 
 #include <set>
 

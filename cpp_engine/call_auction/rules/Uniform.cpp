@@ -2,9 +2,9 @@
 // Port of python_engine/call_auction/rules/uniform.py
 //
 
-#include "uniform.h"
+#include "Uniform.h"
 
-#include "call_auction/fok.h"
+#include "call_auction/FillOrKill.h"
 
 #include <algorithm>
 #include <cstdlib>

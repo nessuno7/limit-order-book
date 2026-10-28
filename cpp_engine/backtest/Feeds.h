@@ -1,7 +1,7 @@
 //
 // Sources of market-by-order messages for the backtester.
 //
-//   syntheticFeed(): runs the fuzzer's order flow (harness/op_generator.h)
+//   syntheticFeed(): runs the fuzzer's order flow (harness/OpGenerator.h)
 //     through a matching FastBook and reports what that exchange did, message
 //     by message, the way a real feed would. Internally consistent by
 //     construction, so it doubles as a test of the passive replay path.
@@ -16,7 +16,7 @@
 #include "backtest/MarketEvent.h"
 #include "backtest/ReplayBook.h"
 #include "fast/FastBook.h"
-#include "harness/op_generator.h"
+#include "harness/OpGenerator.h"
 
 #include <algorithm>
 #include <charconv>

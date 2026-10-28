@@ -164,7 +164,7 @@ lobster-check: ## Rebuild a LOBSTER day and check it against its orderbook file 
 $(LOBSTER_CHECK_BIN): $(LOBSTER_CHECK_OBJ)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-# perf on Linux. Elsewhere bench/sampler.h samples the thread (MinGW has no
+# perf on Linux. Elsewhere bench/Sampler.h samples the thread (MinGW has no
 # perf, and its gprof records call counts but no time) and bench/symbolize.py
 # resolves the samples with addr2line. PROFILE_IMPL=engine|map|fast.
 PROFILE_IMPL ?= fast

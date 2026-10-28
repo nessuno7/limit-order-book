@@ -2,9 +2,9 @@
 // Port of python_engine/call_auction/rules/discriminatory.py
 //
 
-#include "discriminatory.h"
+#include "Discriminatory.h"
 
-#include "call_auction/fok.h"
+#include "call_auction/FillOrKill.h"
 
 #include <algorithm>
 #include <stdexcept>

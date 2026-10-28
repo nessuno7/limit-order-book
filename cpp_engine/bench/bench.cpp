@@ -11,7 +11,7 @@
 // Usage: lob_bench [output.json]   (default ../results/cpp_microbench.json)
 //
 
-#include "continuous_auction/continuous_auction.h"
+#include "continuous_auction/ContinuousDoubleAuction.h"
 #include "orderbook/OrderArena.h"
 
 #include <algorithm>

@@ -6,7 +6,7 @@
 #define LIMIT_ORDER_BOOK_CALL_AUCTION_H
 
 #include "Engine.h"
-#include "pricing_rule.h"
+#include "PricingRule.h"
 
 #include <unordered_set>
 #include <vector>

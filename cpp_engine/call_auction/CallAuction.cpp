@@ -2,7 +2,7 @@
 // Port of python_engine/call_auction/call_auction.py
 //
 
-#include "call_auction.h"
+#include "CallAuction.h"
 
 #include <stdexcept>
 #include <string>

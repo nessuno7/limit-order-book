@@ -3,10 +3,10 @@
 // `python -m python_engine` and should print the same fills.
 //
 
-#include "call_auction/call_auction.h"
-#include "call_auction/rules/discriminatory.h"
-#include "call_auction/rules/uniform.h"
-#include "continuous_auction/continuous_auction.h"
+#include "call_auction/CallAuction.h"
+#include "call_auction/rules/Discriminatory.h"
+#include "call_auction/rules/Uniform.h"
+#include "continuous_auction/ContinuousDoubleAuction.h"
 #include "orderbook/OrderArena.h"
 
 #include <iomanip>

@@ -17,9 +17,9 @@
 #ifndef LIMIT_ORDER_BOOK_ADAPTERS_H
 #define LIMIT_ORDER_BOOK_ADAPTERS_H
 
-#include "continuous_auction/continuous_auction.h"
+#include "continuous_auction/ContinuousDoubleAuction.h"
 #include "fast/FastBook.h"
-#include "harness/op.h"
+#include "harness/Op.h"
 #include "orderbook/OrderArena.h"
 
 #include <cstddef>

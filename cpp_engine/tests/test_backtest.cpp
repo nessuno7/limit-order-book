@@ -10,7 +10,7 @@
 #include "backtest/Feeds.h"
 #include "backtest/Strategies.h"
 #include "backtest/Trace.h"
-#include "harness/op.h"
+#include "harness/Op.h"
 
 #include <filesystem>
 #include <optional>

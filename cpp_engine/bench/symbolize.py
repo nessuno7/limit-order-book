@@ -1,5 +1,5 @@
 """
-Turns bench/sampler.h's address histogram into a flat profile.
+Turns bench/Sampler.h's address histogram into a flat profile.
 
     python bench/symbolize.py <exe> <samples.txt> [--top N]
 

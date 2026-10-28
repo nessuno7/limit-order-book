@@ -2,7 +2,7 @@
 // Port of python_engine/continuous_auction/continuous_auction.py
 //
 
-#include "continuous_auction.h"
+#include "ContinuousDoubleAuction.h"
 
 #include <stdexcept>
 #include <string>

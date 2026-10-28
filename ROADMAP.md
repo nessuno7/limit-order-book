@@ -23,7 +23,7 @@ What exists:
 - **`modify`** in both engines (C++ and Python), with the usual exchange rule:
   a reduction at the same price keeps queue priority, anything else
   re-enters and may trade. Tested in both languages.
-- **`harness/reference_book.h`**: the oracle. One sorted `std::vector` per
+- **`harness/ReferenceBook.h`**: the oracle. One sorted `std::vector` per
   side, linear scans only, written from the rules rather than from either
   implementation.
 - **`fuzz/fuzz.cpp`** (`make fuzz`): seeded random add/cancel/modify flow
@@ -65,7 +65,7 @@ What exists:
   allocations, for the shallow and deep books.
 - **`bench/gbench.cpp`**: Google Benchmark suite (CMake, `-DLOB_GBENCH=ON`).
 - **`make profile`**: `perf record` on Linux. On Windows, where there is no
-  perf and MinGW's gprof takes no time samples, `bench/sampler.h` is a small
+  perf and MinGW's gprof takes no time samples, `bench/Sampler.h` is a small
   sampling profiler and `bench/symbolize.py` resolves the samples.
 
 Results are in the README under *Latency*. Measured findings worth keeping:

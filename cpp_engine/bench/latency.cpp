@@ -16,15 +16,15 @@
 //                                              5 passes, pool/id-table capacity 65,536)
 //   lob_latency --profile engine|map|fast [samples.txt]
 //                                              replay one book in a loop, untimed, for perf; on
-//                                              Windows, sample it with bench/sampler.h
+//                                              Windows, sample it with bench/Sampler.h
 //
 // Run it on an idle machine; it pins itself to one core at high priority.
 //
 
-#include "harness/adapters.h"
-#include "harness/op_generator.h"
-#include "harness/reference_book.h"
-#include "sampler.h"
+#include "harness/Adapters.h"
+#include "harness/OpGenerator.h"
+#include "harness/ReferenceBook.h"
+#include "Sampler.h"
 
 #include <algorithm>
 #include <chrono>
@@ -361,7 +361,7 @@ int main(const int argc, char **argv) {
         const Scenario s = makeScenario(1, n);
         std::cout << "profiling " << profileImpl << " on " << s.ops.size() << " deep-book ops x 10\n";
 #ifdef _WIN32
-        Sampler sampler; // perf's job on Linux; see bench/sampler.h
+        Sampler sampler; // perf's job on Linux; see bench/Sampler.h
 #endif
         if (profileImpl == "engine") profileLoop<EngineAdapter>(s);
         else if (profileImpl == "map") profileLoop<MapBookAdapter>(s);

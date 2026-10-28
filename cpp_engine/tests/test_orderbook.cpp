@@ -6,7 +6,7 @@
 #include "helpers.h"
 #include "test_framework.h"
 
-#include "orderbook/Orderbook.h"
+#include "orderbook/OrderBook.h"
 
 #include <deque>
 #include <stdexcept>

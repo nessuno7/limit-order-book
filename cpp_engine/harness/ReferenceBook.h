@@ -23,7 +23,7 @@
 #ifndef LIMIT_ORDER_BOOK_REFERENCE_BOOK_H
 #define LIMIT_ORDER_BOOK_REFERENCE_BOOK_H
 
-#include "harness/op.h"
+#include "harness/Op.h"
 
 #include <cstddef>
 #include <optional>

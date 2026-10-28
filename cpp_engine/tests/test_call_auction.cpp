@@ -6,9 +6,9 @@
 #include "helpers.h"
 #include "test_framework.h"
 
-#include "call_auction/call_auction.h"
-#include "call_auction/rules/discriminatory.h"
-#include "call_auction/rules/uniform.h"
+#include "call_auction/CallAuction.h"
+#include "call_auction/rules/Discriminatory.h"
+#include "call_auction/rules/Uniform.h"
 
 #include <stdexcept>
 #include <utility>

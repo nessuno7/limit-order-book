@@ -6,7 +6,7 @@
 #include "helpers.h"
 #include "test_framework.h"
 
-#include "continuous_auction/continuous_auction.h"
+#include "continuous_auction/ContinuousDoubleAuction.h"
 
 #include <stdexcept>
 

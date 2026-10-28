@@ -5,7 +5,7 @@
 #ifndef LIMIT_ORDER_BOOK_DISCRIMINATORY_H
 #define LIMIT_ORDER_BOOK_DISCRIMINATORY_H
 
-#include "call_auction/pricing_rule.h"
+#include "call_auction/PricingRule.h"
 
 #include <vector>
 
