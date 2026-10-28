@@ -1,12 +1,21 @@
 # limit-order-book
 
-A matching engine (the core of an exchange) written twice: a readable
-**Python** reference and a **C++20** port. Both run three markets behind one
-interface (continuous trading, uniform-price call auctions and pay-as-bid call
-auctions), with limit/market orders, GTC/IOC/FOK time-in-force, cancel and
-modify. On top of that sits **`FastBook`**, a latency-oriented C++ book with
-zero heap allocations on the hot path. It is checked against a naive
-reference book on millions of random operations.
+A matching engine (the core of an exchange) in C++20, with a Python
+reference implementation, a zero-allocation order book, and a
+market-making backtester that replays real NASDAQ data (LOBSTER).
+
+Both engines run three markets behind one interface: continuous trading,
+uniform-price call auctions and pay-as-bid call auctions. They support
+limit and market orders, GTC/IOC/FOK, cancel and modify.
+
+## Start here
+
+| file | what it shows |
+|---|---|
+| [`cpp_engine/fast/FastBook.h`](cpp_engine/fast/FastBook.h) | The low-latency book: a flat price ladder with a bitmap scan, intrusive FIFO queues, an object pool and an open-addressing id index. No allocation after construction. |
+| [`cpp_engine/fuzz/fuzz.cpp`](cpp_engine/fuzz/fuzz.cpp), [`harness/ReferenceBook.h`](cpp_engine/harness/ReferenceBook.h) | How it is proven correct: differential fuzzing against a deliberately naive oracle. |
+| [`cpp_engine/backtest/SimExchange.h`](cpp_engine/backtest/SimExchange.h) | The backtester's exchange: exact queue position from order ids, and when a historical message fills one of our orders. |
+| [`results/`](results/README.md) | Every number below, with the command that regenerates it. |
 
 The full design is in **[DESIGN.md](DESIGN.md)**; what comes next is in
 **[ROADMAP.md](ROADMAP.md)**.
@@ -32,6 +41,10 @@ The full design is in **[DESIGN.md](DESIGN.md)**; what comes next is in
 - **Testing by invariant found bugs that 124 passing example tests missed,**
   including a fill-or-kill search that leaked state between branches, so a
   batch that could fill traded **nothing**.
+- **The backtester replays a full LOBSTER day at 11.6M messages/s,** with
+  exact queue position and separate order-entry and market-data latency.
+  Its rebuilt book matches LOBSTER's own snapshot at the touch on all
+  269,748 messages.
 
 ## Correctness
 
@@ -72,7 +85,7 @@ into `FastBook` and requires a divergence:
 
 ### Tests
 
-- Python runs **1,278 tests**, C++ **110 test cases** (debug and `-O2`).
+- Python runs **1,278 tests**, C++ **142 test cases** (debug and `-O2`).
 - The C++ builds warning-free under `-Wall -Wextra -Wpedantic -Wconversion
   -Wsign-conversion -Wshadow -Wold-style-cast`.
 - Both suites have three layers:
@@ -240,22 +253,21 @@ C++.
 ## Layout
 
 ```
-python_engine/                 # the reference engine
-├── engine.py                  # MatchingEngine interface
-├── __main__.py                # demo: one order flow through all three markets
-├── orderbook/                 # OrderBook (SortedDict levels) + Order/Trade/Side
+cpp_engine/                    # C++20: the engine and everything built on it
+├── orderbook/                 # Order, Trade, OrderBook, OrderArena
 ├── continuous_auction/        # ContinuousDoubleAuction (submit, modify)
-└── call_auction/              # CallAuction, pricing rules, shared FOK walk
-
-cpp_engine/                    # C++20 port, same structure and semantics
+├── call_auction/              # CallAuction, PricingRule, FillOrKill, rules/{Uniform,Discriminatory}
 ├── fast/FastBook.h            # zero-allocation book: flat ladder, pool, intrusive lists
-├── harness/                   # ReferenceBook oracle, op generator, adapters
+├── harness/                   # ReferenceBook oracle, OpGenerator, adapters
 ├── fuzz/                      # differential fuzzer + mutation check
-├── bench/                     # bench (micro), replay, latency, gbench, sampler
+├── bench/                     # micro, replay, latency and Google benchmarks; sampling profiler
+├── backtest/                  # Backtester, SimExchange, StrategyView, LOBSTER feed + day cache
 └── tests/                     # dependency-free test suite
 
+python_engine/                 # the reference engine, same structure and semantics
 tests/                         # Python example, edge-case and invariant tests
 benchmark/                     # Python micro-benchmark and the Python-vs-C++ replay
+ui/                            # localhost backtest viewer (standard-library Python)
 results/                       # committed benchmark and fuzz outputs (see results/README.md)
 out/                           # regenerated scratch output, not committed
 ```
